@@ -1,0 +1,119 @@
+# gloat configuration file
+# Location: $XDG_CONFIG_HOME/gloat/config.toml or ~/.config/gloat/config.toml
+# (if neither exists, float's ~/.config/float/config.toml is read instead).
+# Any missing values fall back to the defaults shown below.
+# Problems (unknown keys, bad values) are shown in the status bar.
+
+# Shell to spawn in new windows. May include arguments, e.g. "/usr/bin/fish -l".
+# Empty: use $SHELL, or /bin/sh if that is unset too.
+shell = ""
+
+# Disable mouse support entirely. Also hides the window title bar.
+disable_mouse = false
+
+# Window frame:
+#   "full"    - box with a three-row title box
+#   "compact" - box with the title in the top border
+#   "none"    - only a top line with the title; no side or bottom borders.
+#               Drag the middle of the line to move, either end to resize.
+# (The older setting compact = true / false still works when frame isn't set.)
+frame = "none"
+
+# After pressing Esc, a letter key pressed within this many milliseconds is
+# treated as Alt+key (for terminals where Alt doesn't work). 0 disables it.
+# Esc followed by anything that isn't a shortcut is passed through normally.
+alt_timeout_ms = 200
+
+# Lines of history kept per window. Scroll with the mouse wheel or
+# Alt+PageUp / Alt+PageDown; typing returns to the live view.
+scrollback_lines = 1000
+
+# Copying: select text with the mouse (drag, double-click a word,
+# triple-click a line; hold Shift in programs that use the mouse) and it is
+# copied when you release the button.
+# The status bar says which routes were used ("copied 12 characters (via
+# terminal + xclip)") and reports a command that failed.
+#
+# clipboard_osc52: ask the terminal to set the clipboard (OSC 52). Works over
+# SSH. Supported by Windows Terminal, iTerm2, kitty, WezTerm, Alacritty, foot,
+# Ghostty, recent Konsole; NOT by PuTTY, GNOME Terminal / other VTE terminals
+# or macOS Terminal.app; xterm needs "disallowedWindowOps" relaxed.
+clipboard_osc52 = true
+# Also pipe the text to a clipboard program. "" = pick one automatically:
+# inside tmux "tmux load-buffer -w -", on WSL clip.exe, on macOS pbcopy, on
+# Wayland wl-copy, on X11 xclip or xsel. "none" = never. Or name one, e.g.
+# "xclip -selection clipboard".
+copy_command = ""
+
+# Window title source:
+#   "process"  - name of the program running in the window (like float)
+#   "terminal" - the title the program sets (OSC 0/2), else the process name
+title_source = "process"
+
+[theme]
+# Colors are an ANSI palette index (0-255), "#rrggbb" or "default".
+focused_border = 14
+unfocused_border = 8
+# Border color for pinned windows (overrides focused/unfocused).
+pinned_border = 11
+# Status bar (bottom line): text and background, and the color of messages
+# shown there (config warnings, "copied N characters", ...).
+status_fg = 250
+status_bg = 236
+hint_text = 11
+# Background of the window frame, title included (only used when frame is
+# "compact" or "none" and the window has no Alt+b colors). Leave unset
+# (commented out) for the terminal's default.
+# compact_title_bg = 236
+
+# Color schemes that Alt+b (keys.cycle_background) steps the active window
+# through, in order, wrapping around. Each is "background:text"; "default"
+# means the terminal's own color, and windows start at "default:default".
+# The window's border takes the background too. Text a program colors itself
+# keeps its own colors. A single color (e.g. 17) sets only the background;
+# {bg = 17, fg = 230} also works.
+window_colors = [
+  "default:default",
+  "234:252",   # charcoal / light grey
+  "17:230",    # navy / cream
+  "22:194",    # forest / pale green
+  "52:224",    # maroon / pale pink
+  "53:225",    # plum / lavender
+  "58:229",    # olive / pale yellow
+]
+
+[keys]
+# Every binding is a single character used with the Alt modifier.
+# Arrow keys always work too: Alt+arrow moves, Alt+Shift+arrow resizes.
+# Alt+1..9 focus windows by the number shown in their title; Alt+0 focuses
+# the full-screen background shell.
+new_window = "c"
+focus_next = "n"
+focus_prev = "p"
+quit = "q"
+close_window = "x"
+move_left = "h"
+move_down = "j"
+move_up = "k"
+move_right = "l"
+resize_left = "H"           # Alt+Shift+H: narrower
+resize_down = "J"           # Alt+Shift+J: taller
+resize_up = "K"             # Alt+Shift+K: shorter
+resize_right = "L"          # Alt+Shift+L: wider
+pin_window = "w"            # keep this window above all others
+cycle_background = "b"      # next scheme from theme.window_colors
+
+[layout]
+# Offset, in character cells, when cascading a new window from the focused one.
+cascade_offset_x = 2
+cascade_offset_y = 1
+
+# Size of a new window relative to the area above the status bar (0.0-1.0].
+new_window_width_ratio = 0.5
+new_window_height_ratio = 0.5
+
+# Minimum window dimensions, including borders. The height is raised
+# automatically if the frame needs more (5 for "full", 3 for "compact",
+# 2 for "none").
+min_window_cols = 6
+min_window_rows = 5

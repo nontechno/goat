@@ -1,0 +1,316 @@
+// Command gloat is a floating-window terminal multiplexer: freely positioned,
+// overlapping terminal windows driven by keyboard and mouse.
+//
+// It is a Go port of float (github.com/Henktorius/float), built on
+// charmbracelet/x/vt for terminal emulation and charmbracelet/ultraviolet for
+// the host terminal.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"image/color"
+	"os"
+	"os/signal"
+	"runtime/pprof"
+	"strings"
+	"syscall"
+	"time"
+	"unicode/utf8"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
+)
+
+var version = "dev"
+
+const (
+	// keySeqTimeout is how long the input decoder waits to see whether an
+	// ESC starts an escape sequence. Short, so that a human pressing Esc and
+	// then an arrow is not merged into Alt+arrow.
+	keySeqTimeout = 30 * time.Millisecond
+	titleInterval = 500 * time.Millisecond
+	frameInterval = 16 * time.Millisecond // at most ~60 redraws per second
+	// parseBudget caps how long program output is fed to the emulators
+	// before input is looked at and a frame drawn, so a flood of output
+	// (cat of a huge file) can't freeze keys, mouse or the screen.
+	parseBudget = 8 * time.Millisecond
+)
+
+func main() {
+	cfgPath := flag.String("config", "", "config file (default: ~/.config/gloat/config.toml)")
+	showVersion := flag.Bool("version", false, "print version and exit")
+	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file (for diagnosing)")
+	flag.Parse()
+	if *cpuProfile != "" {
+		if f, err := os.Create(*cpuProfile); err == nil {
+			_ = pprof.StartCPUProfile(f)
+			defer func() { pprof.StopCPUProfile(); _ = f.Close() }()
+		}
+	}
+	if *showVersion {
+		fmt.Println("gloat", version)
+		return
+	}
+
+	cfg, _, warns := LoadConfig(*cfgPath)
+	err := run(cfg, warns)
+	// Printed after the full-screen UI is gone, so they stay visible.
+	for _, w := range warns {
+		fmt.Fprintln(os.Stderr, "gloat: warning:", w)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "gloat:", err)
+		pprof.StopCPUProfile()
+		os.Exit(1)
+	}
+}
+
+func run(cfg *Config, warns []string) (err error) {
+	in, out := os.Stdin, os.Stdout
+	if !term.IsTerminal(in.Fd()) || !term.IsTerminal(out.Fd()) {
+		return errors.New("stdin and stdout must be a terminal")
+	}
+	state, err := term.MakeRaw(in.Fd())
+	if err != nil {
+		return fmt.Errorf("raw mode: %w", err)
+	}
+	cols, rows, gerr := term.GetSize(out.Fd())
+	if gerr != nil || cols <= 0 || rows <= 0 {
+		cols, rows = 80, 24
+	}
+	scr := newHostScreen(out, os.Environ(), cols, rows)
+	mouse := !cfg.DisableMouse
+
+	// Always give the user their terminal back, even on a panic.
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		scr.teardown(mouse)
+		_ = term.Restore(in.Fd(), state)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			restore()
+			panic(r)
+		}
+		restore()
+	}()
+	if err := scr.setup(mouse); err != nil {
+		return err
+	}
+
+	// Input. uv.TerminalReader decodes keys, mouse, paste and replies; it
+	// reads into a fresh buffer each time. (uv.Terminal is not used: its
+	// input loop reuses one buffer across goroutines, a data race.)
+	events := make(chan uv.Event, 64)
+	rd := uv.NewTerminalReader(in, os.Getenv("TERM"))
+	rd.EscTimeout = keySeqTimeout
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = rd.StreamEvents(ctx, events) }()
+
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	defer signal.Stop(winch)
+
+	m := newWM(cfg, warns, cols, rows)
+	m.dir, _ = os.Getwd()
+	if err := m.startBackground(); err != nil {
+		return fmt.Errorf("starting shell: %w", err)
+	}
+	if len(warns) > 0 {
+		msg := "config: " + warns[0]
+		if len(warns) > 1 {
+			msg += fmt.Sprintf(" (+%d more, listed when gloat exits)", len(warns)-1)
+		}
+		m.setStatus(msg, 20*time.Second)
+	}
+	copyCmd := clipboardCommand(cfg.CopyCommand, realClipboardEnv())
+	copyErrs := make(chan string, 4)
+	m.copy = func(text, who string) {
+		var via []string
+		if cfg.ClipboardOSC52 {
+			_, _ = out.WriteString(ansi.SetSystemClipboard(text))
+			via = append(via, "terminal")
+		}
+		if copyCmd != nil {
+			runClipboardCommand(copyCmd, text, func(msg string) {
+				select {
+				case copyErrs <- msg:
+				default:
+				}
+			})
+			via = append(via, copyCmd[0])
+		}
+		msg := fmt.Sprintf("copied %d characters (via %s)", utf8.RuneCountInString(text), strings.Join(via, " + "))
+		if who != "" {
+			msg = who + " " + msg
+		}
+		if len(via) == 0 {
+			msg = "nothing to copy with: set clipboard_osc52 = true or copy_command"
+		}
+		m.setStatus(msg, 4*time.Second)
+	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	titles := time.NewTicker(titleInterval)
+	defer titles.Stop()
+	frame := make(chan struct{}, 1)
+	var lastFrame time.Time
+	frameArmed := false
+
+	handle := func(ev uv.Event) {
+		if e := m.handleEvent(ev, scr); e != nil {
+			m.setStatus(e.Error(), 10*time.Second)
+		}
+	}
+
+	for !m.quit {
+		select {
+		case ev := <-events:
+			handle(ev)
+		case msg := <-m.out:
+			m.handlePty(msg)
+		case <-m.escFire:
+			m.escExpired()
+		case msg := <-copyErrs:
+			m.setStatus(msg, 8*time.Second)
+		case now := <-titles.C:
+			m.tick(now)
+		case <-frame:
+			frameArmed = false
+		case <-winch:
+			if c, h, err := term.GetSize(out.Fd()); err == nil && c > 0 && h > 0 {
+				handle(uv.WindowSizeEvent{Width: c, Height: h})
+			}
+		case <-sigs:
+			m.quit = true
+		}
+		// Work through what else is waiting, input first, spending at most
+		// parseBudget on program output before drawing.
+		deadline := time.Now().Add(parseBudget)
+	drain:
+		for !m.quit {
+			select {
+			case ev := <-events:
+				handle(ev)
+				continue
+			default:
+			}
+			if time.Now().After(deadline) {
+				break drain
+			}
+			select {
+			case msg := <-m.out:
+				m.handlePty(msg)
+			default:
+				break drain
+			}
+		}
+		if !m.dirty || m.quit {
+			continue
+		}
+		// Draw when a frame is due. Checked on every turn (not only via the
+		// timer), so a steady stream of output can't postpone frames; the
+		// timer only matters when gloat would otherwise go idle.
+		if wait := frameInterval - time.Since(lastFrame); wait > 0 {
+			if !frameArmed {
+				frameArmed = true
+				time.AfterFunc(wait, func() { frame <- struct{}{} })
+			}
+			continue
+		}
+		if err := m.render(scr); err != nil {
+			m.closeAll()
+			return err
+		}
+		lastFrame = time.Now()
+	}
+	m.closeAll()
+	return nil
+}
+
+// handleEvent dispatches one host terminal event.
+func (m *WM) handleEvent(ev uv.Event, scr *hostScreen) error {
+	switch ev := ev.(type) {
+	case uv.WindowSizeEvent:
+		scr.resize(ev.Width, ev.Height)
+		m.resizeScreen(ev.Width, ev.Height)
+	case uv.KeyPressEvent:
+		return m.handleKey(uv.Key(ev))
+	// The reader sends PasteStart, PasteEvent (the text), PasteEnd. Keys that
+	// arrive between start and end (from decoders that don't collect the
+	// text themselves) are gathered and pasted at the end.
+	case uv.PasteStartEvent:
+		m.pasting, m.pasteBuf = true, nil
+	case uv.PasteEndEvent:
+		m.pasting = false
+		m.paste(string(m.pasteBuf))
+		m.pasteBuf = nil
+	case uv.PasteEvent:
+		m.paste(ev.Content)
+	case uv.MouseClickEvent:
+		m.handleMouse(ev)
+	case uv.MouseReleaseEvent:
+		m.handleMouse(ev)
+	case uv.MouseMotionEvent:
+		m.handleMouse(ev)
+	case uv.MouseWheelEvent:
+		m.handleMouse(ev)
+	case uv.ForegroundColorEvent:
+		m.setHostColors(ev.Color, nil)
+	case uv.BackgroundColorEvent:
+		m.setHostColors(nil, ev.Color)
+	}
+	return nil
+}
+
+// setHostColors records the host terminal's default colors and passes them to
+// every emulator (they are what programs get when they query the colors).
+func (m *WM) setHostColors(fg, bg color.Color) {
+	if fg != nil {
+		m.hostFg = fg
+	}
+	if bg != nil {
+		m.hostBg = bg
+	}
+	for _, w := range m.windows {
+		m.applyHostColors(w)
+	}
+}
+
+func (m *WM) applyHostColors(w *Window) {
+	switch {
+	case w.fgColor != nil: // chosen with Alt+b
+		w.emu.SetDefaultForegroundColor(w.fgColor)
+	case m.hostFg != nil:
+		w.emu.SetDefaultForegroundColor(m.hostFg)
+	}
+	switch {
+	case w.bgColor != nil: // chosen with Alt+b
+		w.emu.SetDefaultBackgroundColor(w.bgColor)
+	case m.hostBg != nil:
+		w.emu.SetDefaultBackgroundColor(m.hostBg)
+	}
+}
+
+// render draws one frame, with the host cursor at the focused program's
+// cursor (or hidden).
+func (m *WM) render(scr *hostScreen) error {
+	var cur cursorState
+	if x, y, ok := m.cursorFor(); ok {
+		w := m.focused
+		cur = cursorState{visible: true, x: x, y: y, shape: w.cursorShape, blink: w.cursorBlink}
+	}
+	m.dirty = false
+	return scr.render(scene{m}, cur)
+}
