@@ -1,5 +1,5 @@
-# gloat configuration file
-# Location: $XDG_CONFIG_HOME/gloat/config.toml or ~/.config/gloat/config.toml
+# goat configuration file
+# Location: $XDG_CONFIG_HOME/goat/config.toml or ~/.config/goat/config.toml
 # (if neither exists, float's ~/.config/float/config.toml is read instead).
 # Any missing values fall back to the defaults shown below.
 # Problems (unknown keys, bad values) are shown in the status bar.
@@ -15,7 +15,8 @@ disable_mouse = false
 #   "full"    - box with a three-row title box
 #   "compact" - box with the title in the top border
 #   "none"    - only a top line with the title; no side or bottom borders.
-#               Drag the middle of the line to move, either end to resize.
+#               Drag the middle of the line to move; drag either end, or
+#               the window's bottom-right 2x2 cells, to resize.
 # (The older setting compact = true / false still works when frame isn't set.)
 frame = "none"
 
@@ -81,6 +82,11 @@ window_colors = [
   "53:225",    # plum / lavender
   "58:229",    # olive / pale yellow
 ]
+
+# When true, a new window (Alt+c) starts with the scheme after the focused
+# window's in window_colors (wrapping around) instead of "default:default",
+# so it stands out from the window it was opened from.
+new_window_next_colors = true
 
 [keys]
 # Every binding is a single character used with the Alt modifier.

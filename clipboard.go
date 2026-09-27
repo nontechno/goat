@@ -13,7 +13,7 @@ import (
 //
 // Two independent routes, both used when available:
 //
-//   - OSC 52: gloat asks the terminal to set its clipboard. Works over SSH,
+//   - OSC 52: goat asks the terminal to set its clipboard. Works over SSH,
 //     but the terminal must support and allow it (PuTTY, GNOME Terminal and
 //     other VTE terminals, and macOS Terminal.app don't; xterm and tmux need
 //     it enabled).

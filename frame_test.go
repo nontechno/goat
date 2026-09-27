@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestFrameConfig(t *testing.T) {
@@ -85,6 +86,42 @@ func TestFrameNoneResizeByHandles(t *testing.T) {
 	if w.x != 9 || w.y != 7 || w.w != 29 {
 		t.Fatalf("move: %d,%d %dx%d", w.x, w.y, w.w, w.h)
 	}
+}
+
+func TestFrameNoneCornerGrip(t *testing.T) {
+	m := newWM(DefaultConfig(), nil, 80, 24)
+	m.cfg.frame = frameNone
+	w := fakeFramed(1, 10, 5, 20, 8, true, frameNone) // cells x 10-29, y 5-12
+	m.windows, m.focused = []*Window{w}, w
+	for _, p := range [][2]int{{28, 11}, {29, 11}, {28, 12}, {29, 12}} {
+		if !w.onGrip(p[0], p[1]) {
+			t.Errorf("(%d,%d) should be on the grip", p[0], p[1])
+		}
+	}
+	for _, p := range [][2]int{{27, 12}, {29, 10}, {30, 12}, {29, 13}} {
+		if w.onGrip(p[0], p[1]) {
+			t.Errorf("(%d,%d) should not be on the grip", p[0], p[1])
+		}
+	}
+	if fakeFramed(2, 10, 5, 20, 8, true, frameCompact).onGrip(29, 12) {
+		t.Error("only frame none has the grip")
+	}
+
+	// Dragging from either grip cell resizes relative to where it started,
+	// also when the program in the window wants the mouse.
+	w.mouseModes = map[ansi.DECMode]bool{ansi.ModeMouseNormal: true}
+	m.handleMouse(uv.MouseClickEvent{X: 28, Y: 11, Button: uv.MouseLeft})
+	m.handleMouse(uv.MouseMotionEvent{X: 33, Y: 13, Button: uv.MouseLeft})
+	m.handleMouse(uv.MouseReleaseEvent{X: 33, Y: 13, Button: uv.MouseLeft})
+	if w.x != 10 || w.y != 5 || w.w != 25 || w.h != 10 {
+		t.Fatalf("grip drag: %d,%d %dx%d", w.x, w.y, w.w, w.h)
+	}
+	// Elsewhere in the content, a click still selects / goes to the program.
+	m.handleMouse(uv.MouseClickEvent{X: 20, Y: 9, Button: uv.MouseLeft})
+	if m.drag.kind != dragContent {
+		t.Errorf("content click: drag kind %v, want dragContent", m.drag.kind)
+	}
+	m.handleMouse(uv.MouseReleaseEvent{X: 20, Y: 9, Button: uv.MouseLeft})
 }
 
 func TestBoxResizeIsRelative(t *testing.T) {

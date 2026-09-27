@@ -460,6 +460,9 @@ func (b *Buffer) InsertLine(y, n int, c *Cell) {
 // rectangle's horizontal bounds are affected. Lines are pushed out of the
 // rectangle bounds and lost. This follows terminal [ansi.IL] behavior.
 func (b *Buffer) InsertLineArea(y, n int, c *Cell, area Rectangle) {
+	// goat patch: never touch cells outside the buffer, whatever the
+	// caller's area (an oversized scroll region used to panic here).
+	area = area.Intersect(b.Bounds())
 	if n <= 0 || y < area.Min.Y || y >= area.Max.Y || y >= b.Height() {
 		return
 	}
@@ -469,7 +472,7 @@ func (b *Buffer) InsertLineArea(y, n int, c *Cell, area Rectangle) {
 		n = area.Max.Y - y
 	}
 
-	// gloat patch: when the region spans whole lines (the usual case: plain
+	// goat patch: when the region spans whole lines (the usual case: plain
 	// scrolling), rotate the line slices instead of copying every cell.
 	if b.fullWidth(area) {
 		b.rotateLines(y, area.Max.Y, -n)
@@ -501,6 +504,9 @@ func (b *Buffer) InsertLineArea(y, n int, c *Cell, area Rectangle) {
 // new blank lines are created at the bottom. This follows terminal [ansi.DL]
 // behavior.
 func (b *Buffer) DeleteLineArea(y, n int, c *Cell, area Rectangle) {
+	// goat patch: never touch cells outside the buffer, whatever the
+	// caller's area (an oversized scroll region used to panic here).
+	area = area.Intersect(b.Bounds())
 	if n <= 0 || y < area.Min.Y || y >= area.Max.Y || y >= b.Height() {
 		return
 	}
@@ -510,7 +516,7 @@ func (b *Buffer) DeleteLineArea(y, n int, c *Cell, area Rectangle) {
 		n = area.Max.Y - y
 	}
 
-	// gloat patch: see InsertLineArea.
+	// goat patch: see InsertLineArea.
 	if b.fullWidth(area) {
 		b.rotateLines(y, area.Max.Y, n)
 		for i := area.Max.Y - n; i < area.Max.Y; i++ {
@@ -723,12 +729,18 @@ func (b *RenderBuffer) TouchedLines() int {
 // SetCell sets the cell at the given x, y position and marks the line as
 // touched.
 func (b *RenderBuffer) SetCell(x, y int, c *Cell) {
-	if !cellEqual(b.CellAt(x, y), c) {
-		width := 1
-		if c != nil && c.Width > 0 {
-			width = c.Width
+	width := 1
+	if c != nil && c.Width > 0 {
+		width = c.Width
+	}
+	// GOAT PATCH: when the line is already marked touched over these
+	// columns, touching it again changes nothing, so skip comparing the old
+	// and new cell (a full style comparison per printed character).
+	if y < 0 || y >= len(b.Touched) || b.Touched[y] == nil ||
+		b.Touched[y].FirstCell > x || b.Touched[y].LastCell < x+width {
+		if !cellEqual(b.CellAt(x, y), c) {
+			b.TouchLine(x, y, width)
 		}
-		b.TouchLine(x, y, width)
 	}
 	b.Buffer.SetCell(x, y, c)
 }
@@ -813,7 +825,7 @@ func (b *RenderBuffer) DeleteCellArea(x, y, n int, c *Cell, area Rectangle) {
 	b.TouchLine(x, y, n)
 }
 
-// gloat patch helpers (see InsertLineArea / DeleteLineArea).
+// goat patch helpers (see InsertLineArea / DeleteLineArea).
 
 // fullWidth reports whether area covers entire lines of the buffer.
 func (b *Buffer) fullWidth(area Rectangle) bool {
@@ -852,7 +864,13 @@ func (b *Buffer) fillLine(y int, c *Cell) {
 		fill = *c
 	}
 	line := b.Lines[y]
-	for x := range line {
-		line[x] = fill
+	if len(line) == 0 {
+		return
+	}
+	// Set one cell, then copy doubling runs: a few bulk moves instead of a
+	// struct copy per cell.
+	line[0] = fill
+	for n := 1; n < len(line); n *= 2 {
+		copy(line[n:], line[:n])
 	}
 }

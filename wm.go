@@ -116,7 +116,7 @@ func (m *WM) startBackground() error {
 func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 	return &WM{
 		cfg: cfg, warnings: warnings, cols: cols, rows: rows,
-		// A short queue: when programs write faster than gloat can parse,
+		// A short queue: when programs write faster than goat can parse,
 		// the PTY fills and slows them down (like any terminal), instead of
 		// megabytes piling up here (which would make Ctrl+C take effect late).
 		nextID: 1, out: make(chan ptyMsg, 16),
@@ -238,6 +238,9 @@ func (m *WM) newWindow() error {
 	}
 	m.nextID++
 	m.initBackground(win)
+	if m.cfg.Theme.NewWindowNextColors {
+		m.nextColorsFrom(m.focused, win)
+	}
 	m.applyHostColors(win)
 	m.hookClipboard(win)
 	m.windows = append(m.windows, win)
@@ -593,6 +596,10 @@ func (m *WM) handleMouse(ev uv.MouseEvent) {
 		d := drag{win: w}
 		shift := mo.Mod.Contains(uv.ModShift)
 		switch {
+		case mo.Button == uv.MouseLeft && w.onGrip(x, y):
+			// Frame "none": the corner resizes, even over a program that
+			// uses the mouse.
+			d.kind = dragBottomR
 		case w.inContent(x, y) && w.wantsMouse() && !shift:
 			d.kind = dragContent
 			m.forwardMouse(w, ev)
@@ -714,7 +721,9 @@ func (m *WM) handlePty(msg ptyMsg) {
 		}
 		return
 	}
-	w.feed(msg.data)
+	if err := w.feed(msg.data); err != nil {
+		m.setStatus(fmt.Sprintf("window %d: %v", m.number(w), err), 10*time.Second)
+	}
 	m.dirty = true
 }
 
@@ -747,6 +756,33 @@ func (m *WM) cycleBackground() {
 	m.applyHostColors(w) // programs asking for the colors get these
 	m.setStatus(fmt.Sprintf("colors %d/%d: %s:%s", w.colorIndex+1, len(list),
 		colorName(w.bgColor), colorName(w.fgColor)), 2*time.Second)
+}
+
+// nextColorsFrom gives w the window_colors scheme after from's, skipping any
+// that look the same as from's (e.g. a list starting "default:default" when
+// from uses the terminal's colors). With no from, w keeps its colors.
+func (m *WM) nextColorsFrom(from, w *Window) {
+	list := m.cfg.Theme.WindowColors
+	if from == nil || len(list) == 0 {
+		return
+	}
+	i := from.colorIndex // -1 when from's colors aren't in the list
+	for range list {
+		i = (i + 1) % len(list)
+		if !sameColor(list[i].Bg, from.bgColor) || !sameColor(list[i].Fg, from.fgColor) {
+			break
+		}
+	}
+	w.colorIndex, w.bgColor, w.fgColor = i, list[i].Bg, list[i].Fg
+}
+
+func sameColor(a, b color.Color) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
 func colorName(c color.Color) string {

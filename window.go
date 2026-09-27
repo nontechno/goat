@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image/color"
 	"io"
 	"os"
@@ -233,16 +234,31 @@ func (w *Window) wantsMouse() bool {
 }
 
 // feed passes PTY output to the emulator.
-func (w *Window) feed(data []byte) {
+//
+// Should the emulator panic on some input, only this window suffers: the
+// terminal is reset and an error returned, rather than every window and the
+// user's session going down with it.
+func (w *Window) feed(data []byte) (err error) {
 	if w.closed {
-		return
+		return nil
 	}
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("terminal emulator failed (%v); window reset", p)
+			func() {
+				defer func() { _ = recover() }()
+				_, _ = w.emu.Write([]byte(ansi.ResetInitialState))
+			}()
+			w.scroll = 0
+		}
+	}()
 	before := w.emu.ScrollbackLen()
 	_, _ = w.emu.Write(data)
 	if w.scroll > 0 { // keep the viewed history lines steady
 		after := w.emu.ScrollbackLen()
 		w.scroll = min(w.scroll+max(after-before, 0), after)
 	}
+	return nil
 }
 
 // send writes raw input to the program and returns to the live view.
@@ -384,6 +400,14 @@ func (w *Window) onHandle(x, y int) int {
 		return 1
 	}
 	return 0
+}
+
+// onGrip reports whether (x, y) is in the bottom-right 2x2 cells of a
+// frame-"none" window: a resize grip over the content's corner, since such
+// a window has no bottom or right edge to drag.
+func (w *Window) onGrip(x, y int) bool {
+	return !w.background && w.frame == frameNone && w.contains(x, y) &&
+		x >= w.x+w.w-2 && y >= w.y+w.h-2 && y > w.y
 }
 
 // inputQueue is an unbounded, non-blocking byte queue drained into the PTY.

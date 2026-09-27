@@ -128,6 +128,9 @@ type ThemeConfig struct {
 	WindowColors []ColorPair `toml:"window_colors"`
 	// Older background-only form; used when window_colors isn't set.
 	WindowBackgrounds []Color `toml:"window_backgrounds"`
+	// New windows (Alt+c) take the scheme after the focused window's in
+	// window_colors, so they don't look like the window they came from.
+	NewWindowNextColors bool `toml:"new_window_next_colors"`
 }
 
 // KeyConfig holds Alt+<key> bindings. Each value is a single character.
@@ -177,7 +180,7 @@ type Config struct {
 	// After a lone Esc, a character key within this many milliseconds is
 	// treated as Alt+key. 0 disables the Esc prefix.
 	AltTimeoutMs int `toml:"alt_timeout_ms"`
-	// Unused (gloat is event driven); accepted for float compatibility.
+	// Unused (goat is event driven); accepted for float compatibility.
 	PollIntervalMs int `toml:"poll_interval_ms"`
 
 	// Lines of history kept per window (mouse wheel / Alt+PageUp to view).
@@ -379,7 +382,7 @@ func configPaths() []string {
 		base = append(base, filepath.Join(h, ".config"))
 	}
 	var out []string
-	for _, app := range []string{"gloat", "float"} { // float's config works too
+	for _, app := range []string{"goat", "float"} { // float's config works too
 		for _, b := range base {
 			out = append(out, filepath.Join(b, app, "config.toml"))
 		}

@@ -142,3 +142,44 @@ func TestWindowColorBeatsCompactTitleBg(t *testing.T) {
 		t.Fatalf("window color should win, got %v", c.Style.Bg)
 	}
 }
+
+func TestNewWindowNextColors(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Theme.NewWindowNextColors = true
+	m := newWM(cfg, nil, 80, 24)
+	list := m.cfg.Theme.WindowColors // starts "default:default", "234:252", ...
+
+	from := fakeWindow(1, 0, 0, 20, 8, true, false)
+	m.initBackground(from) // default:default, index 0
+	w := fakeWindow(2, 0, 0, 20, 8, true, false)
+	m.initBackground(w)
+	m.nextColorsFrom(from, w)
+	if w.colorIndex != 1 || w.bgColor != list[1].Bg || w.fgColor != list[1].Fg {
+		t.Fatalf("after default: index %d", w.colorIndex)
+	}
+
+	// From the last scheme it wraps to the first ... which is default, like
+	// the terminal; fine as long as it differs from the source window.
+	from.colorIndex = len(list) - 1
+	from.bgColor, from.fgColor = list[from.colorIndex].Bg, list[from.colorIndex].Fg
+	m.nextColorsFrom(from, w)
+	if w.colorIndex != 0 {
+		t.Fatalf("wrap: index %d", w.colorIndex)
+	}
+
+	// Source colors not in the list: the first entry that differs.
+	from.colorIndex, from.bgColor, from.fgColor = -1, nil, nil
+	m.nextColorsFrom(from, w)
+	if w.colorIndex != 1 {
+		t.Fatalf("unlisted default source: index %d, want 1 (skips default:default)", w.colorIndex)
+	}
+
+	// No list, no source: colors left alone.
+	m.cfg.Theme.WindowColors = nil
+	w.colorIndex = 5
+	m.nextColorsFrom(from, w)
+	m.nextColorsFrom(nil, w)
+	if w.colorIndex != 5 {
+		t.Fatal("changed colors without a list")
+	}
+}

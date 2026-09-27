@@ -19,7 +19,8 @@ func TestExampleConfig(t *testing.T) {
 	if c.Keys != d.Keys || c.Layout != d.Layout || c.AltTimeoutMs != d.AltTimeoutMs ||
 		c.ScrollbackLines != d.ScrollbackLines || c.TitleSource != d.TitleSource ||
 		c.ClipboardOSC52 != d.ClipboardOSC52 || c.CopyCommand != d.CopyCommand ||
-		len(c.Theme.WindowColors) != len(d.Theme.WindowColors) {
+		len(c.Theme.WindowColors) != len(d.Theme.WindowColors) ||
+		c.Theme.NewWindowNextColors != d.Theme.NewWindowNextColors {
 		t.Fatalf("example differs from defaults:\n%+v\n%+v", c, d)
 	}
 	for i, bg := range c.Theme.WindowColors {

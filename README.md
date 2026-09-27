@@ -2,7 +2,7 @@
 
 **Floating window terminal multiplexer, written in Go.**
 
-gloat is a Go port of [float](https://github.com/Henktorius/float): freely
+goat is a Go port of [float](https://github.com/Henktorius/float): freely
 positioned, overlapping terminal windows inside your terminal, driven by
 keyboard and mouse. It uses [charmbracelet/x/vt](https://github.com/charmbracelet/x/tree/main/vt)
 to emulate each window's terminal and
@@ -19,7 +19,7 @@ ok   ./...  0.8s                  │ package main               │
  0:bash  1:vim  2:htop                            copied 12 characters  14:05
 ```
 
-gloat starts with a full-screen shell in the folder you launched it from,
+goat starts with a full-screen shell in the folder you launched it from,
 with a one-line status bar at the bottom. Floating windows open on top of it.
 
 ## Features
@@ -29,7 +29,8 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   the others
 - Status bar: a numbered tab per window (click to focus), messages, a clock
 - Per-window colors: Alt+b steps through background:text pairs you configure;
-  the border takes the background too
+  the border takes the background too; with `new_window_next_colors = true`
+  each new window starts at the next pair after the window it came from
 - Keyboard-driven window management, plus mouse: drag the title bar to move,
   drag the left/right/bottom edges or bottom corners to resize, click to focus
 - Full rendering: 256-color and true color, bold/italic/underline/reverse,
@@ -39,7 +40,7 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   (like xterm's alternate scroll)
 - Per-window scrollback (mouse wheel or Alt+PageUp/PageDown)
 - Programs in windows can set the clipboard too (OSC 52, e.g. from vim, tmux
-  or neovim); gloat passes it on. Programs can't read the clipboard.
+  or neovim); goat passes it on. Programs can't read the clipboard.
 - Select text with the mouse and it is copied to the clipboard: through the
   terminal (OSC 52, works over SSH) and through tmux / `clip.exe` / `pbcopy` /
   `wl-copy` / `xclip` / `xsel` when available
@@ -58,12 +59,12 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 ## Build and run
 
 ```bash
-cd gloat
-go build        # produces ./gloat
-./gloat
+cd goat
+go build        # produces ./goat
+./goat
 ```
 
-or `go install github.com/Henktorius/gloat@latest` once it is published.
+or `go install github.com/nontechno/goat@latest` once it is published.
 
 Flags: `-config <file>` to use a specific config file, `-version`,
 `-cpuprofile <file>` to record a CPU profile (for diagnosing performance).
@@ -82,21 +83,22 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Next window colors        | `Alt+b` (from `window_colors`)  |
 | Scroll history            | `Alt+PageUp` / `Alt+PageDown`   |
 | Close window              | `Alt+x`                         |
-| Quit gloat                | `Alt+q`                         |
+| Quit goat                 | `Alt+q`                         |
 
 If Alt doesn't reach your terminal, press `Esc` then the letter within
 `alt_timeout_ms` (200 ms by default). Esc followed by anything that isn't a
 shortcut, such as an arrow key in vim, goes straight to the program.
 
 The background shell can't be moved, resized, pinned or closed with Alt+x.
-When it exits, gloat quits, like a terminal does, unless floating windows
+When it exits, goat quits, like a terminal does, unless floating windows
 are still open; then a fresh background shell is started.
 
 ## Mouse
 
 - **Move**: drag the title bar
 - **Resize**: drag the left, right or bottom edge, or a bottom corner; with
-  `frame = "none"`, drag either end of the window's top line
+  `frame = "none"`, drag either end of the window's top line, or the
+  bottom-right 2x2 cells of the window
 - **Focus**: click anywhere in a window, or its tab in the status bar
 - **Scroll**: mouse wheel (history, or the program's own scrolling)
 - **Select and copy**: drag inside a window; double-click selects a word,
@@ -106,13 +108,13 @@ are still open; then a fresh background shell is started.
 
 ## Configuration
 
-gloat reads `$XDG_CONFIG_HOME/gloat/config.toml` or
-`~/.config/gloat/config.toml`, and falls back to float's
+goat reads `$XDG_CONFIG_HOME/goat/config.toml` or
+`~/.config/goat/config.toml`, and falls back to float's
 `~/.config/float/config.toml`, so an existing float config keeps working. See
 [`config.example.toml`](config.example.toml) for every option.
 
-Mistakes in the config never stop gloat: unknown keys and invalid values are
-shown in the status bar and listed again when gloat exits, and defaults are
+Mistakes in the config never stop goat: unknown keys and invalid values are
+shown in the status bar and listed again when goat exits, and defaults are
 used.
 
 ## Differences from float
@@ -130,15 +132,19 @@ Fixed along the way:
 - Shrinking the terminal redraws cleanly and keeps every window reachable
 - Text attributes and wide characters are rendered correctly
 - Alt+1..9 focus stable, numbered windows instead of stack positions
-- The terminal is always restored, even if gloat panics
+- The terminal is always restored, even if goat panics
 - New windows can't underflow on tiny terminals; closed shells are reaped
 - Event driven: no 16 ms polling, `/proc` is read twice a second, not per frame
 - Stays responsive under huge output (`cat` of a 50 MB file): program output
   is processed in 8 ms slices between input handling and frames (~40-60/s),
   a short queue slows the program down instead of buffering megabytes, and
-  scrolling no longer copies every cell (see `third_party/ultraviolet`).
-  Measured: 41 s -> 12 s for 50 MB in a full-screen window, keys respond in
-  ~20 ms instead of ~1 s.
+  the terminal emulator does far less work per character and per line
+  (patched copies in `third_party/`). Measured: 50 MB in a full-screen
+  200x49 window takes ~4 s using ~4 s of CPU (was ~10 s and 11.5 s), and keys
+  respond in ~20 ms instead of ~1 s.
+- A program can't crash goat: scroll margins beyond the screen no longer
+  crash the emulator, and if the emulator ever does fail on some input,
+  only that window is reset.
 
 Borrowed from [tvxterm](https://github.com/blacknon/tvxterm): mouse passthrough
 to programs that ask for it, wheel scrolling of history, focus in/out

@@ -77,7 +77,7 @@ func TestClipboardViaTmux(t *testing.T) {
 	defer exec.Command("tmux", "-S", sock, "kill-server").Run()
 
 	failed := make(chan string, 1)
-	// Same command gloat detects inside tmux, pointed at the test server.
+	// Same command goat detects inside tmux, pointed at the test server.
 	runClipboardCommand([]string{"tmux", "-S", sock, "load-buffer", "-"}, "copied via tmux", func(m string) { failed <- m })
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

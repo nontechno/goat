@@ -1,4 +1,4 @@
-// Command gloat is a floating-window terminal multiplexer: freely positioned,
+// Command goat is a floating-window terminal multiplexer: freely positioned,
 // overlapping terminal windows driven by keyboard and mouse.
 //
 // It is a Go port of float (github.com/Henktorius/float), built on
@@ -41,7 +41,7 @@ const (
 )
 
 func main() {
-	cfgPath := flag.String("config", "", "config file (default: ~/.config/gloat/config.toml)")
+	cfgPath := flag.String("config", "", "config file (default: ~/.config/goat/config.toml)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file (for diagnosing)")
 	flag.Parse()
@@ -52,7 +52,7 @@ func main() {
 		}
 	}
 	if *showVersion {
-		fmt.Println("gloat", version)
+		fmt.Println("goat", version)
 		return
 	}
 
@@ -60,10 +60,10 @@ func main() {
 	err := run(cfg, warns)
 	// Printed after the full-screen UI is gone, so they stay visible.
 	for _, w := range warns {
-		fmt.Fprintln(os.Stderr, "gloat: warning:", w)
+		fmt.Fprintln(os.Stderr, "goat: warning:", w)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "gloat:", err)
+		fmt.Fprintln(os.Stderr, "goat:", err)
 		pprof.StopCPUProfile()
 		os.Exit(1)
 	}
@@ -128,7 +128,7 @@ func run(cfg *Config, warns []string) (err error) {
 	if len(warns) > 0 {
 		msg := "config: " + warns[0]
 		if len(warns) > 1 {
-			msg += fmt.Sprintf(" (+%d more, listed when gloat exits)", len(warns)-1)
+			msg += fmt.Sprintf(" (+%d more, listed when goat exits)", len(warns)-1)
 		}
 		m.setStatus(msg, 20*time.Second)
 	}
@@ -221,7 +221,7 @@ func run(cfg *Config, warns []string) (err error) {
 		}
 		// Draw when a frame is due. Checked on every turn (not only via the
 		// timer), so a steady stream of output can't postpone frames; the
-		// timer only matters when gloat would otherwise go idle.
+		// timer only matters when goat would otherwise go idle.
 		if wait := frameInterval - time.Since(lastFrame); wait > 0 {
 			if !frameArmed {
 				frameArmed = true

@@ -28,5 +28,9 @@ require (
 )
 
 // Patched copy: scrolling rotates lines instead of copying every cell
-// (see third_party/ultraviolet/GLOAT_PATCH.md).
+// (see third_party/ultraviolet/GOAT_PATCH.md).
 replace github.com/charmbracelet/ultraviolet => ./third_party/ultraviolet
+
+// Patched copy: faster printing and scrollback, and no panic on scroll
+// margins beyond the screen (see third_party/vt/GOAT_PATCH.md).
+replace github.com/charmbracelet/x/vt => ./third_party/vt

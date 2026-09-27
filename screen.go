@@ -51,7 +51,7 @@ func (s *hostScreen) resize(w, h int) {
 	s.rend.Erase() // full redraw on the next frame
 }
 
-// setup switches the terminal into gloat's mode: alternate screen, hidden
+// setup switches the terminal into goat's mode: alternate screen, hidden
 // cursor, bracketed paste, optional mouse reporting.
 func (s *hostScreen) setup(mouse bool) error {
 	var b bytes.Buffer
