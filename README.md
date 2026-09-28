@@ -98,6 +98,10 @@ understands those characters as the shortcuts they stand for
 SSH from a Mac). Option+n can't work that way, because macOS holds it back as
 an accent key; use Meta, or `Esc` then `n`.
 
+If shortcuts don't work, run `goat -keys`: it shows which config file is in
+use, whether `mac_option_keys` is on, and for each key you press the bytes
+the terminal sends and what goat makes of them.
+
 The background shell can't be moved, resized, pinned or closed with Alt+x.
 When it exits, goat quits, like a terminal does, unless floating windows
 are still open; then a fresh background shell is started.

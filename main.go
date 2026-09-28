@@ -44,6 +44,7 @@ func main() {
 	cfgPath := flag.String("config", "", "config file (default: ~/.config/goat/config.toml)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file (for diagnosing)")
+	keys := flag.Bool("keys", false, "show what each key press sends and what goat makes of it, then exit (Ctrl+C)")
 	flag.Parse()
 	if *cpuProfile != "" {
 		if f, err := os.Create(*cpuProfile); err == nil {
@@ -56,7 +57,14 @@ func main() {
 		return
 	}
 
-	cfg, _, warns := LoadConfig(*cfgPath)
+	cfg, usedPath, warns := LoadConfig(*cfgPath)
+	if *keys {
+		if err := keyTest(cfg, usedPath, warns, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "goat:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	err := run(cfg, warns)
 	// Printed after the full-screen UI is gone, so they stay visible.
 	for _, w := range warns {

@@ -123,7 +123,7 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		// megabytes piling up here (which would make Ctrl+C take effect late).
 		nextID: 1, out: make(chan ptyMsg, 16),
 		escFire: make(chan struct{}, 1), dirty: true,
-		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM")),
+		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
 	}
 }
 

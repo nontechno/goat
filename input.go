@@ -212,12 +212,17 @@ func macOptionKey(k uv.Key) (uv.Key, bool) {
 }
 
 // macOptionOn resolves the mac_option_keys setting.
-func macOptionOn(setting, goos, termProgram string) bool {
+//
+// "auto" looks at the OS and at TERM_PROGRAM (set by Terminal.app and
+// iTerm2 locally, but not passed on by ssh) and LC_TERMINAL (set by iTerm2,
+// and passed on by a default ssh setup, which forwards LC_*).
+func macOptionOn(setting, goos, termProgram, lcTerminal string) bool {
 	switch setting {
 	case "on":
 		return true
 	case "off":
 		return false
 	}
-	return goos == "darwin" || termProgram == "Apple_Terminal" || termProgram == "iTerm.app"
+	return goos == "darwin" || termProgram == "Apple_Terminal" ||
+		termProgram == "iTerm.app" || lcTerminal == "iTerm2"
 }

@@ -105,15 +105,16 @@ func TestMacOptionKeys(t *testing.T) {
 	}
 
 	for _, c := range []struct {
-		set, goos, prog string
-		want            bool
+		set, goos, prog, lc string
+		want                bool
 	}{
-		{"auto", "darwin", "", true}, {"auto", "linux", "Apple_Terminal", true},
-		{"auto", "linux", "iTerm.app", true}, {"auto", "linux", "", false},
-		{"on", "linux", "", true}, {"off", "darwin", "Apple_Terminal", false},
+		{"auto", "darwin", "", "", true}, {"auto", "linux", "Apple_Terminal", "", true},
+		{"auto", "linux", "iTerm.app", "", true}, {"auto", "linux", "", "iTerm2", true},
+		{"auto", "linux", "", "", false},
+		{"on", "linux", "", "", true}, {"off", "darwin", "Apple_Terminal", "", false},
 	} {
-		if got := macOptionOn(c.set, c.goos, c.prog); got != c.want {
-			t.Errorf("macOptionOn(%q,%q,%q) = %v", c.set, c.goos, c.prog, got)
+		if got := macOptionOn(c.set, c.goos, c.prog, c.lc); got != c.want {
+			t.Errorf("macOptionOn(%q,%q,%q,%q) = %v", c.set, c.goos, c.prog, c.lc, got)
 		}
 	}
 }
