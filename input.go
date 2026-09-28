@@ -172,3 +172,52 @@ func bindingRune(k uv.Key) (rune, bool) {
 	}
 	return r, true
 }
+
+// macOptionChars maps what macOS Terminal and iTerm2 type for Option+key and
+// Option+Shift+key (US layout, "Use Option as Meta key" off) back to the key.
+// Option+e, i, n, u and ` are dead keys there: they type nothing until the
+// next key, so they can't be recovered.
+var macOptionChars = map[rune]rune{
+	'å': 'a', '∫': 'b', 'ç': 'c', '∂': 'd', 'ƒ': 'f', '©': 'g', '˙': 'h',
+	'∆': 'j', '˚': 'k', '¬': 'l', 'µ': 'm', 'ø': 'o', 'π': 'p', 'œ': 'q',
+	'®': 'r', 'ß': 's', '†': 't', '√': 'v', '∑': 'w', '≈': 'x', '¥': 'y',
+	'Ω': 'z',
+	'Å': 'A', 'ı': 'B', 'Ç': 'C', 'Î': 'D', '´': 'E', 'Ï': 'F', '˝': 'G',
+	'Ó': 'H', 'ˆ': 'I', 'Ô': 'J', '\uf8ff': 'K', 'Ò': 'L', 'Â': 'M',
+	'˜': 'N', 'Ø': 'O', '∏': 'P', 'Œ': 'Q', '‰': 'R', 'Í': 'S', 'ˇ': 'T',
+	'¨': 'U', '◊': 'V', '„': 'W', '˛': 'X', 'Á': 'Y', '¸': 'Z',
+	'¡': '1', '™': '2', '£': '3', '¢': '4', '∞': '5', '§': '6', '¶': '7',
+	'•': '8', 'ª': '9', 'º': '0',
+}
+
+// macOptionKey turns a key that is a macOS Option character into the
+// Alt+key it stands for.
+func macOptionKey(k uv.Key) (uv.Key, bool) {
+	if k.Mod&^uv.ModShift != 0 {
+		return k, false
+	}
+	r := k.Code
+	if rs := []rune(k.Text); len(rs) == 1 {
+		r = rs[0]
+	}
+	base, ok := macOptionChars[r]
+	if !ok {
+		return k, false
+	}
+	alt := uv.Key{Code: base, Text: string(base), Mod: uv.ModAlt}
+	if base >= 'A' && base <= 'Z' {
+		alt.Code, alt.Mod = base-'A'+'a', uv.ModAlt|uv.ModShift
+	}
+	return alt, true
+}
+
+// macOptionOn resolves the mac_option_keys setting.
+func macOptionOn(setting, goos, termProgram string) bool {
+	switch setting {
+	case "on":
+		return true
+	case "off":
+		return false
+	}
+	return goos == "darwin" || termProgram == "Apple_Terminal" || termProgram == "iTerm.app"
+}

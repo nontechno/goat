@@ -29,8 +29,9 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   the others
 - Status bar: a numbered tab per window (click to focus), messages, a clock
 - Per-window colors: Alt+b steps through background:text pairs you configure;
-  the border takes the background too; with `new_window_next_colors = true`
-  each new window starts at the next pair after the window it came from
+  the border takes the background too. Each new window starts at the next
+  pair after the window it came from (`new_window_next_colors = false` to
+  turn that off)
 - Keyboard-driven window management, plus mouse: drag the title bar to move,
   drag the left/right/bottom edges or bottom corners to resize, click to focus
 - Full rendering: 256-color and true color, bold/italic/underline/reverse,
@@ -88,6 +89,14 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 If Alt doesn't reach your terminal, press `Esc` then the letter within
 `alt_timeout_ms` (200 ms by default). Esc followed by anything that isn't a
 shortcut, such as an arrow key in vim, goes straight to the program.
+
+**macOS:** Terminal and iTerm2 make Option type characters (Option+c = `ç`)
+unless *Use Option as Meta key* is on (Terminal: Settings → Profiles →
+Keyboard; iTerm2: Profiles → Keys → Left Option key = Esc+). goat also
+understands those characters as the shortcuts they stand for
+(`mac_option_keys`, automatic on macOS; set it to `"on"` when goat runs over
+SSH from a Mac). Option+n can't work that way, because macOS holds it back as
+an accent key; use Meta, or `Esc` then `n`.
 
 The background shell can't be moved, resized, pinned or closed with Alt+x.
 When it exits, goat quits, like a terminal does, unless floating windows

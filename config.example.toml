@@ -25,6 +25,17 @@ frame = "none"
 # Esc followed by anything that isn't a shortcut is passed through normally.
 alt_timeout_ms = 200
 
+# macOS: Terminal and iTerm2 type a character for Option+key unless "Use
+# Option as Meta key" is on (Option+c types ç, Option+q œ). With this on, such
+# a character is taken as the Alt shortcut it stands for; characters of keys
+# that aren't shortcuts are still typed. Option+n (and e, i, u, `) can't work
+# this way: macOS holds them back as accents. Use Esc then n, or turn on
+# Option as Meta key.
+#   "auto" - on when goat runs on macOS or in Terminal.app / iTerm2
+#            (over SSH that usually can't be detected: set "on")
+#   "on" / "off"
+mac_option_keys = "auto"
+
 # Lines of history kept per window. Scroll with the mouse wheel or
 # Alt+PageUp / Alt+PageDown; typing returns to the live view.
 scrollback_lines = 1000

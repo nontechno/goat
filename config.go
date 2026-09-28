@@ -180,6 +180,11 @@ type Config struct {
 	// After a lone Esc, a character key within this many milliseconds is
 	// treated as Alt+key. 0 disables the Esc prefix.
 	AltTimeoutMs int `toml:"alt_timeout_ms"`
+	// macOS Terminal and iTerm2 type characters for Option+key by default
+	// (Option+c = ç). "on" treats those characters as Alt+key when the key
+	// is a shortcut, "off" never does, "auto" = on when running on macOS or
+	// in Terminal.app / iTerm2.
+	MacOptionKeys string `toml:"mac_option_keys"`
 	// Unused (goat is event driven); accepted for float compatibility.
 	PollIntervalMs int `toml:"poll_interval_ms"`
 
@@ -209,6 +214,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	c := &Config{
 		AltTimeoutMs:    200,
+		MacOptionKeys:   "auto",
 		PollIntervalMs:  16,
 		ScrollbackLines: 1000,
 		TitleSource:     "process",
@@ -230,6 +236,7 @@ func DefaultConfig() *Config {
 				pair(53, 225),  // plum / lavender
 				pair(58, 229),  // olive / pale yellow
 			},
+			NewWindowNextColors: true,
 		},
 		Keys: KeyConfig{
 			NewWindow: "c", FocusNext: "n", FocusPrev: "p", Quit: "q",
@@ -368,6 +375,12 @@ func (c *Config) finish(md *toml.MetaData) []string {
 			continue
 		}
 		c.bindings[r] = b.act
+	}
+	switch c.MacOptionKeys {
+	case "auto", "on", "off":
+	default:
+		warn("mac_option_keys = %q: use \"auto\", \"on\" or \"off\" (using \"auto\")", c.MacOptionKeys)
+		c.MacOptionKeys = "auto"
 	}
 	return warns
 }

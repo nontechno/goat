@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"runtime"
 	"slices"
 	"time"
 
@@ -42,6 +43,7 @@ type WM struct {
 	cfg        *Config
 	warnings   []string
 	cols, rows int
+	macOption  bool // treat macOS Option characters as Alt+key (mac_option_keys)
 
 	windows []*Window // z-order, bottom first; pinned windows sit on top
 	focused *Window
@@ -121,6 +123,7 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		// megabytes piling up here (which would make Ctrl+C take effect late).
 		nextID: 1, out: make(chan ptyMsg, 16),
 		escFire: make(chan struct{}, 1), dirty: true,
+		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM")),
 	}
 }
 
@@ -463,6 +466,16 @@ func (m *WM) handleKey(k uv.Key) error {
 	if k.Mod.Contains(uv.ModAlt) {
 		if ok, err := m.shortcut(k); ok || err != nil {
 			return err
+		}
+	}
+
+	// macOS Option+key typing a character (Option+c = ç): a shortcut if
+	// that Alt+key is one, otherwise the character is typed as usual.
+	if m.macOption {
+		if k2, ok := macOptionKey(k); ok {
+			if ok, err := m.shortcut(k2); ok || err != nil {
+				return err
+			}
 		}
 	}
 

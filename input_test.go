@@ -62,3 +62,58 @@ func TestBindingRune(t *testing.T) {
 		}
 	}
 }
+
+func TestMacOptionKeys(t *testing.T) {
+	m := newWM(DefaultConfig(), nil, 80, 24)
+	m.macOption = true
+	for text, want := range map[string]struct {
+		code rune
+		mod  uv.KeyMod
+	}{
+		"ç": {'c', uv.ModAlt}, "œ": {'q', uv.ModAlt}, "≈": {'x', uv.ModAlt},
+		"Ó": {'h', uv.ModAlt | uv.ModShift}, "¡": {'1', uv.ModAlt},
+	} {
+		r := []rune(text)[0]
+		k, ok := macOptionKey(uv.Key{Code: r, Text: text})
+		if !ok || k.Code != want.code || k.Mod != want.mod {
+			t.Errorf("%s -> %+v %v, want %c %v", text, k, ok, want.code, want.mod)
+		}
+		if b, _ := bindingRune(k); text == "Ó" && b != 'H' {
+			t.Errorf("Ó binds as %c, want H", b)
+		}
+	}
+	for _, k := range []uv.Key{
+		{Code: 'c', Text: "c"},                  // plain letter
+		{Code: 'é', Text: "é"},                  // not an Option character
+		{Code: 'ç', Text: "ç", Mod: uv.ModCtrl}, // with Ctrl
+	} {
+		if _, ok := macOptionKey(k); ok {
+			t.Errorf("%+v should not translate", k)
+		}
+	}
+
+	// A bound key runs its shortcut: Option+q (œ) quits.
+	if err := m.handleKey(uv.Key{Code: 'œ', Text: "œ"}); err != nil || !m.quit {
+		t.Fatalf("œ: quit=%v err=%v", m.quit, err)
+	}
+	// Off: œ is just a character.
+	m2 := newWM(DefaultConfig(), nil, 80, 24)
+	m2.macOption = false
+	_ = m2.handleKey(uv.Key{Code: 'œ', Text: "œ"})
+	if m2.quit {
+		t.Fatal("œ quit with mac_option_keys off")
+	}
+
+	for _, c := range []struct {
+		set, goos, prog string
+		want            bool
+	}{
+		{"auto", "darwin", "", true}, {"auto", "linux", "Apple_Terminal", true},
+		{"auto", "linux", "iTerm.app", true}, {"auto", "linux", "", false},
+		{"on", "linux", "", true}, {"off", "darwin", "Apple_Terminal", false},
+	} {
+		if got := macOptionOn(c.set, c.goos, c.prog); got != c.want {
+			t.Errorf("macOptionOn(%q,%q,%q) = %v", c.set, c.goos, c.prog, got)
+		}
+	}
+}
