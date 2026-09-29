@@ -405,7 +405,9 @@ func (m *WM) cursorFor() (x, y int, ok bool) {
 		return 0, 0, false
 	}
 	x, y = w.contentX()+p.X, w.contentY()+p.Y
-	if x < 0 || y < 0 || x >= m.cols || y >= m.rows || m.topAt(x, y) != w {
+	// Not under another window, and not on the status bar (the last row),
+	// which is drawn over every window.
+	if x < 0 || y < 0 || x >= m.cols || y >= m.rows-1 || m.topAt(x, y) != w {
 		return 0, 0, false
 	}
 	return x, y, true

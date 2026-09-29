@@ -92,3 +92,19 @@ func TestScrollKeysAndMarker(t *testing.T) {
 		t.Fatalf("frame none marker: %q", rows[w.contentY()])
 	}
 }
+
+// The status bar covers every window, the cursor included.
+func TestCursorHiddenUnderStatusBar(t *testing.T) {
+	m := newWM(DefaultConfig(), nil, 40, 12)          // status bar on row 11
+	w := fakeFramed(1, 0, 5, 30, 10, true, frameNone) // content rows 6..14
+	m.windows = []*Window{w}
+	m.focus(w)
+	_, _ = w.emu.Write([]byte("\x1b[5;3H")) // cursor to content row 4 = screen row 10
+	if _, y, ok := m.cursorFor(); !ok || y != 10 {
+		t.Fatalf("cursor above the status bar: y=%d ok=%v", y, ok)
+	}
+	_, _ = w.emu.Write([]byte("\x1b[6;3H")) // content row 5 = screen row 11: the status bar
+	if _, y, ok := m.cursorFor(); ok {
+		t.Fatalf("cursor shown on the status bar row (y=%d)", y)
+	}
+}
