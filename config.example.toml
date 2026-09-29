@@ -18,7 +18,7 @@ disable_mouse = false
 #               Drag the middle of the line to move; drag either end, or
 #               the window's bottom-right 2x2 cells, to resize.
 # (The older setting compact = true / false still works when frame isn't set.)
-frame = "none"
+frame = "compact"
 
 # After pressing Esc, a letter key pressed within this many milliseconds is
 # treated as Alt+key (for terminals where Alt doesn't work). 0 disables it.
@@ -34,11 +34,26 @@ alt_timeout_ms = 200
 #   "auto" - on when goat runs on macOS or in Terminal.app / iTerm2
 #            (over SSH that usually can't be detected: set "on")
 #   "on" / "off"
-mac_option_keys = "auto"
+mac_option_keys = "on"
 
-# Lines of history kept per window. Scroll with the mouse wheel or
-# Alt+PageUp / Alt+PageDown; typing returns to the live view.
+# Lines of history kept per window. Scroll with the mouse wheel,
+# Alt+PageUp / Alt+PageDown (a page), Alt+Shift+PageUp / PageDown (3 lines),
+# Alt+Home (oldest line) and Alt+End (live view); typing returns to the live
+# view too. While scrolled back, a bar on the right edge shows where you are.
 scrollback_lines = 1000
+
+# Long lines: true wraps them at the window's edge, like any terminal. false
+# lets them run on past the edge, to be seen by scrolling sideways (Alt+< /
+# Alt+>, Shift+mouse wheel; the view also follows the cursor while you type).
+# Alt+z (keys.toggle_wrap) switches the active window either way; windows
+# with a border show "wrap" / "nowrap +N" at the bottom right.
+# Programs are still told the window's real width, so full-screen programs
+# (vim, less, htop) are not affected. Shell line editing of commands longer
+# than the window may look odd while not wrapping. Switching back to wrap cuts
+# lines at the window's width.
+wrap_lines = false
+# How long a line can get when not wrapping (80-4096 columns).
+nowrap_width = 512
 
 # Copying: select text with the mouse (drag, double-click a word,
 # triple-click a line; hold Shift in programs that use the mouse) and it is
@@ -60,7 +75,7 @@ copy_command = ""
 # Show the active window's current directory in the status bar, left of the
 # clock (~ for your home folder; shortened from the left, e.g. "…/src/goat",
 # when it doesn't fit). New windows (Alt+c) always start in that directory.
-status_show_dir = false
+status_show_dir = true
 
 # Window title source:
 #   "process"  - name of the program running in the window (like float)
@@ -78,6 +93,10 @@ pinned_border = 11
 status_fg = 250
 status_bg = 236
 hint_text = 11
+# The clock at the right end of the status bar, set off from the rest (and
+# from the directory next to it, see status_show_dir).
+clock_fg = 231
+clock_bg = 24
 # Background of the window frame, title included (only used when frame is
 # "compact" or "none" and the window has no Alt+b colors). Leave unset
 # (commented out) for the terminal's default.
@@ -130,6 +149,9 @@ resize_up = "K"             # Alt+Shift+K: shorter
 resize_right = "L"          # Alt+Shift+L: wider
 pin_window = "w"            # keep this window above all others
 cycle_background = "b"      # next scheme from theme.window_colors
+toggle_wrap = "z"           # wrap long lines, or not (see wrap_lines)
+scroll_left = "<"           # not wrapping: view left (Alt+Shift+,)
+scroll_right = ">"          # ... and right (Alt+Shift+.)
 
 [layout]
 # Offset, in character cells, when cascading a new window from the focused one.

@@ -156,7 +156,7 @@ func TestDrawFrames(t *testing.T) {
 		"│  1:bash   │   ",
 		"├───────────┤   ",
 		"│           │   ",
-		"└───────────┘   ",
+		"└──── wrap ─┘   ", // the wrap indicator
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -168,7 +168,7 @@ func TestDrawFrames(t *testing.T) {
 	w = fakeWindow(1, 0, 0, 13, 3, true, true)
 	m.windows, m.focused = []*Window{w}, w
 	got = render(m)
-	for i, s := range []string{"╭─ 1:bash ──╮   ", "│           │   ", "└───────────┘   "} {
+	for i, s := range []string{"╭─ 1:bash ──╮   ", "│           │   ", "└──── wrap ─┘   "} {
 		if got[i] != s {
 			t.Errorf("compact row %d: %q want %q", i, got[i], s)
 		}

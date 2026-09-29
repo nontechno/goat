@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"image/color"
 	"io"
 
 	"github.com/charmbracelet/colorprofile"
@@ -29,6 +31,7 @@ type hostScreen struct {
 	cursorShown bool
 	shape       uv.CursorShape
 	blink       bool
+	cursorColor string // "#rrggbb" last set with OSC 12; "" = terminal default
 }
 
 func newHostScreen(out io.Writer, env []string, w, h int) *hostScreen {
@@ -72,6 +75,9 @@ func (s *hostScreen) teardown(mouse bool) {
 	if mouse {
 		_ = uv.EncodeMouseMode(&b, uv.MouseModeNone)
 	}
+	if s.cursorColor != "" {
+		b.WriteString(ansi.ResetCursorColor)
+	}
 	b.WriteString(ansi.ResetModeBracketedPaste + ansi.ResetModeAltScreenSaveCursor +
 		ansi.ShowCursor + ansi.SetCursorStyle(0))
 	_, _ = s.out.Write(b.Bytes())
@@ -83,6 +89,16 @@ type cursorState struct {
 	x, y    int
 	shape   uv.CursorShape
 	blink   bool
+	color   color.Color // nil = the terminal's own cursor color
+}
+
+// hexColor is c as "#rrggbb" ("" for nil).
+func hexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
 }
 
 // render draws d and positions the cursor, in a single write.
@@ -123,6 +139,16 @@ func (s *hostScreen) render(d uv.Drawable, cur cursorState) error {
 		if cur.shape != s.shape || cur.blink != s.blink {
 			s.shape, s.blink = cur.shape, cur.blink
 			_ = uv.EncodeCursorStyle(&b, s.shape, s.blink)
+		}
+		// Cursor color (OSC 12): the focused window's text color, or the
+		// terminal's default (OSC 112) for windows without one.
+		if want := hexColor(cur.color); want != s.cursorColor {
+			s.cursorColor = want
+			if want == "" {
+				b.WriteString(ansi.ResetCursorColor)
+			} else {
+				b.WriteString(ansi.SetCursorColor(want))
+			}
 		}
 		if !s.cursorShown {
 			b.WriteString(ansi.ShowCursor)

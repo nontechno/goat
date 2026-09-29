@@ -20,6 +20,7 @@ func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 			m.drawFrame(scr, w)
 		}
 		m.drawContent(scr, w)
+		m.drawScrollMarker(scr, w)
 	}
 	m.drawStatus(scr) // last, so windows never cover it
 }
@@ -145,6 +146,7 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 		put(scr, x1, y, runeCell('│', st))
 	}
 	line(y1, '└', '─', '┘')
+	m.drawWrapIndicator(scr, w, st)
 
 	if w.frame == frameCompact {
 		titleInLine(x0+2, w.w-6) // ╭─␠title␠───╮
@@ -179,7 +181,7 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 	blank.Style.Bg = w.bgColor
 
 	selected := func(row, col int) bool {
-		p := selPos{w.absLine(row), col}
+		p := selPos{w.absLine(row), col + w.hscroll}
 		return hasSel && !p.before(selA) && !selB.before(p)
 	}
 
@@ -189,7 +191,7 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 			continue
 		}
 		for col := 0; col < cw; {
-			c := w.cellAt(col, row)
+			c := w.cellAt(col+w.hscroll, row)
 			width := max(c.Width, 1)
 			sx := cx + col
 			if col+width > cw || sx < b.Min.X || sx+width > b.Max.X {
@@ -220,6 +222,65 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 	}
 }
 
+// wrapLabel is the bottom-border label for w's line wrapping.
+func wrapLabel(w *Window) string {
+	switch {
+	case !w.nowrap:
+		return "wrap"
+	case w.hscroll > 0:
+		return fmt.Sprintf("nowrap +%d", w.hscroll)
+	}
+	return "nowrap"
+}
+
+// drawWrapIndicator writes the wrapping state into the bottom border, near
+// the right corner: ──── nowrap +40 ─┘ (when the window is wide enough).
+func (m *WM) drawWrapIndicator(scr uv.Screen, w *Window, st uv.Style) {
+	label := " " + wrapLabel(w) + " "
+	x := w.x + w.w - 2 - len(label)
+	if x < w.x+2 {
+		return
+	}
+	putCells(scr, x, w.y+w.h-1, textCells(label, st, len(label)))
+}
+
+// scrollThumb is where the scroll marker goes, in content rows: the rows
+// from pos to pos+size-1 of an h-row window, for a view scrolled back by
+// scroll lines out of sb lines of history (scroll > 0, sb >= scroll).
+func scrollThumb(h, sb, scroll int) (pos, size int) {
+	total := sb + h
+	size = clamp(h*h/total, 1, h)
+	pos = (sb - scroll) * (h - size) / sb // oldest line: top; newest: bottom
+	return pos, size
+}
+
+// drawScrollMarker shows, while a window is scrolled back, where the view
+// is in its history: a thick bar on the right border, or, for windows
+// without one (frame "none", the background shell), in the last column.
+func (m *WM) drawScrollMarker(scr uv.Screen, w *Window) {
+	sb := w.emu.ScrollbackLen()
+	h := w.contentH()
+	if w.scroll <= 0 || sb <= 0 || h <= 0 || w.contentW() <= 0 {
+		return
+	}
+	pos, size := scrollThumb(h, sb, w.scroll)
+	st := uv.Style{Fg: m.cfg.Theme.FocusedBorder.C, Attrs: uv.AttrBold}
+	x, ch := w.x+w.w-1, '┃'
+	overlay := w.background || w.frame == frameNone // no right border
+	if overlay {
+		x, ch = w.contentX()+w.contentW()-1, '▐'
+	}
+	switch { // the background of the border or content it sits on
+	case w.bgColor != nil:
+		st.Bg = w.bgColor
+	case !overlay && w.frame != frameFull && m.cfg.Theme.CompactTitleBg != nil:
+		st.Bg = m.cfg.Theme.CompactTitleBg.C
+	}
+	for i := range size {
+		put(scr, x, w.contentY()+pos+i, runeCell(ch, st))
+	}
+}
+
 // drawStatus draws the bottom line: a numbered tab per window (the focused
 // one highlighted; click to focus), any message, and the clock. When space is
 // short the clock wins, then the tabs; the message is shortened.
@@ -230,7 +291,8 @@ func (m *WM) drawStatus(scr uv.Screen) {
 		put(scr, x, y, &uv.Cell{Content: " ", Width: 1, Style: base})
 	}
 
-	clock := textCells(" "+time.Now().Format("15:04")+" ", base, m.cols)
+	clockSt := uv.Style{Fg: m.cfg.Theme.ClockFg.C, Bg: m.cfg.Theme.ClockBg.C, Attrs: uv.AttrBold}
+	clock := textCells(" "+time.Now().Format("15:04")+" ", clockSt, m.cols)
 	clockX := m.cols - cellsWidth(clock)
 	putCells(scr, clockX, y, clock)
 
@@ -338,6 +400,7 @@ func (m *WM) cursorFor() (x, y int, ok bool) {
 		return 0, 0, false
 	}
 	p := w.emu.CursorPosition()
+	p.X -= w.hscroll // no-wrap: the view may be scrolled sideways
 	if p.X < 0 || p.Y < 0 || p.X >= w.contentW() || p.Y >= w.contentH() {
 		return 0, 0, false
 	}

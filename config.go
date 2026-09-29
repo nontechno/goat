@@ -122,6 +122,8 @@ type ThemeConfig struct {
 	HintText        Color  `toml:"hint_text"` // status bar messages
 	StatusFg        Color  `toml:"status_fg"`
 	StatusBg        Color  `toml:"status_bg"`
+	ClockFg         Color  `toml:"clock_fg"` // the clock at the right of the status bar
+	ClockBg         Color  `toml:"clock_bg"`
 	CompactTitleBg  *Color `toml:"compact_title_bg"` // compact border bg; nil = terminal default
 
 	// Color schemes (background:text) Alt+b steps the active window through.
@@ -151,6 +153,9 @@ type KeyConfig struct {
 	PinWindow   string `toml:"pin_window"`
 
 	CycleBackground string `toml:"cycle_background"` // next of theme.window_colors
+	ToggleWrap      string `toml:"toggle_wrap"`      // wrap long lines or not
+	ScrollLeft      string `toml:"scroll_left"`      // view sideways (no-wrap)
+	ScrollRight     string `toml:"scroll_right"`
 }
 
 // LayoutConfig holds window geometry settings.
@@ -191,6 +196,12 @@ type Config struct {
 	// Lines of history kept per window (mouse wheel / Alt+PageUp to view).
 	ScrollbackLines int `toml:"scrollback_lines"`
 
+	// Wrap long lines at the window's edge (true), or let them run on and
+	// scroll the view sideways (false; keys.toggle_wrap switches per window).
+	// Not wrapping, a window holds lines up to nowrap_width columns.
+	WrapLines   bool `toml:"wrap_lines"`
+	NowrapWidth int  `toml:"nowrap_width"`
+
 	// Show the active window's current directory in the status bar, left of
 	// the clock (shortened from the left when it doesn't fit).
 	StatusShowDir bool `toml:"status_show_dir"`
@@ -221,6 +232,8 @@ func DefaultConfig() *Config {
 		MacOptionKeys:   "auto",
 		PollIntervalMs:  16,
 		ScrollbackLines: 1000,
+		WrapLines:       true,
+		NowrapWidth:     512,
 		TitleSource:     "process",
 		Frame:           "full",
 		ClipboardOSC52:  true,
@@ -231,6 +244,8 @@ func DefaultConfig() *Config {
 			HintText:        idx(11),
 			StatusFg:        idx(250),
 			StatusBg:        idx(236),
+			ClockFg:         idx(231),
+			ClockBg:         idx(24),
 			WindowColors: []ColorPair{
 				{},             // terminal default
 				pair(234, 252), // charcoal / light grey
@@ -251,6 +266,7 @@ func DefaultConfig() *Config {
 		Keys: KeyConfig{
 			NewWindow: "c", FocusNext: "n", FocusPrev: "p", Quit: "q",
 			CloseWindow: "x", PinWindow: "w", CycleBackground: "b",
+			ToggleWrap: "z", ScrollLeft: "<", ScrollRight: ">",
 			MoveLeft: "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
 			ResizeLeft: "H", ResizeDown: "J", ResizeUp: "K", ResizeRight: "L",
 		},
@@ -286,6 +302,9 @@ const (
 	actResizeRight
 	actPinWindow
 	actCycleBackground
+	actToggleWrap
+	actScrollLeft
+	actScrollRight
 )
 
 // finish validates the config and builds the key binding table. Problems are
@@ -319,6 +338,10 @@ func (c *Config) finish(md *toml.MetaData) []string {
 
 	if c.AltTimeoutMs < 0 {
 		c.AltTimeoutMs = 0
+	}
+	if c.NowrapWidth < 80 || c.NowrapWidth > 4096 {
+		warn("nowrap_width = %d: want 80..4096 (using 512)", c.NowrapWidth)
+		c.NowrapWidth = 512
 	}
 	if c.ScrollbackLines < 0 {
 		c.ScrollbackLines = 0
@@ -373,6 +396,9 @@ func (c *Config) finish(md *toml.MetaData) []string {
 		{"resize_right", &c.Keys.ResizeRight, "L", actResizeRight},
 		{"pin_window", &c.Keys.PinWindow, "w", actPinWindow},
 		{"cycle_background", &c.Keys.CycleBackground, "b", actCycleBackground},
+		{"toggle_wrap", &c.Keys.ToggleWrap, "z", actToggleWrap},
+		{"scroll_left", &c.Keys.ScrollLeft, "<", actScrollLeft},
+		{"scroll_right", &c.Keys.ScrollRight, ">", actScrollRight},
 	} {
 		r, size := utf8.DecodeRuneInString(*b.val)
 		if *b.val == "" || size != len(*b.val) || (r >= '0' && r <= '9') {

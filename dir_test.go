@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 func TestFitAndHome(t *testing.T) {
@@ -137,4 +139,23 @@ func TestNewWindowStartsInActiveDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitDir(m.focused, launch)
+}
+
+// The clock has its own colors, so it stands apart from the directory.
+func TestClockHighlighted(t *testing.T) {
+	m, _, _, b := wmWithBackground(t)
+	m.cfg.StatusShowDir = true
+	b.dir = "/srv/data"
+	scr := uv.NewScreen(m.cols, m.rows)
+	scene{m}.Draw(scr, scr.Bounds())
+	y := m.rows - 1
+	clockX := m.cols - len(" 15:04 ")
+	c := scr.CellAt(clockX+1, y) // first digit
+	if c == nil || c.Style.Bg != m.cfg.Theme.ClockBg.C || c.Style.Fg != m.cfg.Theme.ClockFg.C {
+		t.Fatalf("clock cell %+v: want clock colors", c)
+	}
+	d := scr.CellAt(clockX-1, y) // last letter of the directory
+	if d == nil || d.Content != "a" || d.Style.Bg != m.cfg.Theme.StatusBg.C {
+		t.Fatalf("directory cell %+v: want status bar colors", d)
+	}
 }

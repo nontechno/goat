@@ -60,7 +60,7 @@ func (w *Window) cellAtAbs(col, line int) *uv.Cell {
 // posAt converts a screen point to a selection position in w, clamped to the
 // content area.
 func (w *Window) posAt(x, y int) selPos {
-	col := clamp(x-w.contentX(), 0, w.contentW()-1)
+	col := clamp(x-w.contentX(), 0, w.contentW()-1) + w.hscroll
 	row := clamp(y-w.contentY(), 0, w.contentH()-1)
 	return selPos{line: w.absLine(row), col: col}
 }
@@ -68,7 +68,7 @@ func (w *Window) posAt(x, y int) selPos {
 // lineRunes returns the characters of an absolute line, one per column; both
 // columns of a wide character hold that character.
 func (w *Window) lineRunes(line int) []rune {
-	out := make([]rune, w.contentW())
+	out := make([]rune, w.emu.Width())
 	for col := range out {
 		c := w.cellAtAbs(col, line)
 		switch {
@@ -110,7 +110,7 @@ func (s *selection) bounds() (selPos, selPos) {
 	}
 	switch s.mode {
 	case selLine:
-		a.col, b.col = 0, w.contentW()-1
+		a.col, b.col = 0, w.emu.Width()-1
 	case selWord:
 		ra := w.lineRunes(a.line)
 		for a.col > 0 && isWordRune(ra[a.col-1]) && isWordRune(ra[a.col]) {
@@ -149,7 +149,7 @@ func (s *selection) text() string {
 	w := s.win
 	var lines []string
 	for line := a.line; line <= b.line; line++ {
-		from, to := 0, w.contentW()-1
+		from, to := 0, w.emu.Width()-1
 		if line == a.line {
 			from = a.col
 		}
@@ -157,7 +157,7 @@ func (s *selection) text() string {
 			to = b.col
 		}
 		var sb strings.Builder
-		for col := from; col <= to && col < w.contentW(); col++ {
+		for col := from; col <= to && col < w.emu.Width(); col++ {
 			c := w.cellAtAbs(col, line)
 			switch {
 			case c == nil:

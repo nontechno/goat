@@ -38,11 +38,15 @@ type Window struct {
 	cmd  *exec.Cmd
 	in   *inputQueue
 
-	shellName string
-	procName  string // foreground process, from /proc
-	oscTitle  string // set by the program (OSC 0/2)
-	oscDir    string // working directory the shell reported (OSC 7)
-	dir       string // last known working directory (for the status bar)
+	shellName    string
+	procName     string // foreground process, from /proc
+	nowrap       bool   // long lines are not wrapped (see emuWidth)
+	nowrapW      int
+	hscroll      int    // columns the view is scrolled right (no-wrap)
+	followCursor bool   // the view follows the cursor sideways (after typing)
+	oscTitle     string // set by the program (OSC 0/2)
+	oscDir       string // working directory the shell reported (OSC 7)
+	dir          string // last known working directory (for the status bar)
 
 	appCursor     bool
 	mouseModes    map[ansi.DECMode]bool
@@ -127,6 +131,8 @@ type winOpts struct {
 	background bool   // borderless full-screen background shell
 	scrollback int    // history lines
 	dir        string // working directory ("" = inherit)
+	nowrap     bool   // long lines run past the right edge (wrap_lines = false)
+	nowrapW    int    // emulator width when not wrapping (nowrap_width)
 }
 
 // newWindow starts shell in a PTY sized to the window's content area.
@@ -137,6 +143,7 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 		mouseModes:    map[ansi.DECMode]bool{},
 		cursorVisible: true,
 		cursorBlink:   true, // CSI 0 q: the terminal's default blinking block
+		nowrap:        o.nowrap, nowrapW: o.nowrapW,
 	}
 	cw, ch := win.contentW(), win.contentH()
 
@@ -151,7 +158,7 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	win.cmd, win.ptmx = cmd, ptmx
 	win.shellName = filepath.Base(args[0])
 
-	win.emu = vt.NewEmulator(cw, ch)
+	win.emu = vt.NewEmulator(win.emuWidth(cw), ch)
 	win.emu.SetScrollbackSize(o.scrollback)
 	// OSC 52: a program in the window sets the clipboard (vim, tmux, ...).
 	win.emu.RegisterOscHandler(52, func(data []byte) bool {
@@ -271,6 +278,7 @@ func (w *Window) send(b []byte) {
 		return
 	}
 	w.scroll = 0
+	w.followCursor = true // typing: keep the cursor in view (no-wrap)
 	_, _ = w.in.Write(b)
 }
 
@@ -281,10 +289,75 @@ func (w *Window) setGeometry(x, y, width, height int) {
 	w.x, w.y, w.w, w.h = x, y, width, height
 	cw, ch := w.contentW(), w.contentH()
 	if cw != oldW || ch != oldH {
-		w.emu.Resize(cw, ch)
+		w.emu.Resize(w.emuWidth(cw), ch)
 		_ = pty.Setsize(w.ptmx, &pty.Winsize{Cols: uint16(cw), Rows: uint16(ch)})
 		w.scroll = min(w.scroll, w.emu.ScrollbackLen())
+		w.hscroll = min(w.hscroll, w.maxHScroll())
 	}
+}
+
+// Line wrapping.
+//
+// Wrapped (the default), the emulator is exactly as wide as the window and
+// long lines wrap at its edge, as in any terminal. Not wrapped, the emulator
+// is nowrapW columns wide while the program is still told the window's
+// width (the PTY size): full-screen programs lay themselves out for what is
+// visible, and only plain output (cat, logs) runs on past the edge. The view
+// then scrolls sideways (hscroll).
+
+// emuWidth is the emulator width for a content area cw wide.
+func (w *Window) emuWidth(cw int) int {
+	if w.nowrap {
+		return max(cw, w.nowrapW)
+	}
+	return cw
+}
+
+// maxHScroll is how far the view can scroll right.
+func (w *Window) maxHScroll() int { return max(w.emu.Width()-w.contentW(), 0) }
+
+// setWrap switches wrapping on or off. Turning it on cuts lines at the
+// window's width, like a terminal made narrower.
+func (w *Window) setWrap(wrap bool) {
+	if w.nowrap == !wrap {
+		return
+	}
+	w.nowrap = !wrap
+	w.emu.Resize(w.emuWidth(w.contentW()), w.contentH())
+	w.hscroll = 0
+}
+
+// scrollSideways moves the view n columns right (negative: left); reports a
+// change. A manual scroll stops the view from following the cursor.
+func (w *Window) scrollSideways(n int) bool {
+	s := clamp(w.hscroll+n, 0, w.maxHScroll())
+	w.followCursor = false
+	if s == w.hscroll {
+		return false
+	}
+	w.hscroll = s
+	return true
+}
+
+// followCursorView scrolls the view sideways, after typing, so that the
+// cursor is visible; reports a change.
+func (w *Window) followCursorView() bool {
+	if !w.followCursor || w.scroll > 0 || w.maxHScroll() == 0 {
+		return false
+	}
+	cw, x := w.contentW(), w.emu.CursorPosition().X
+	s := w.hscroll
+	switch {
+	case x < s:
+		s = max(x-cw/4, 0)
+	case x >= s+cw:
+		s = min(x-cw+1+cw/4, w.maxHScroll())
+	}
+	if s == w.hscroll {
+		return false
+	}
+	w.hscroll = s
+	return true
 }
 
 // close ends the window: hang up the shell and release resources. The exit

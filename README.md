@@ -31,7 +31,8 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   and optionally the active window's directory (`status_show_dir`)
 - New windows (Alt+c) start in the active window's current directory
 - Per-window colors: Alt+b steps through background:text pairs you configure;
-  the border takes the background too. Each new window starts at the next
+  the border takes the background and the cursor the text color (where the
+  terminal allows setting it). Each new window starts at the next
   pair after the window it came from (`new_window_next_colors = false` to
   turn that off)
 - Keyboard-driven window management, plus mouse: drag the title bar to move,
@@ -41,7 +42,10 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 - Programs that use the mouse (vim, htop, mc, ...) get mouse clicks, drags and
   the wheel; in full-screen programs without mouse support the wheel scrolls
   (like xterm's alternate scroll)
-- Per-window scrollback (mouse wheel or Alt+PageUp/PageDown)
+- Long lines wrap, or not (`wrap_lines`, Alt+z per window): unwrapped lines run
+  past the edge and the view scrolls sideways; the bottom border shows which
+- Per-window scrollback (mouse wheel or keys, see below), with a position
+  bar on the right edge while scrolled back
 - Programs in windows can set the clipboard too (OSC 52, e.g. from vim, tmux
   or neovim); goat passes it on. Programs can't read the clipboard.
 - Select text with the mouse and it is copied to the clipboard: through the
@@ -84,7 +88,11 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Resize window             | `Alt+H/J/K/L` or `Alt+Shift+arrows` |
 | Pin / unpin (stay on top) | `Alt+w`                         |
 | Next window colors        | `Alt+b` (from `window_colors`)  |
-| Scroll history            | `Alt+PageUp` / `Alt+PageDown`   |
+| Scroll history by a page  | `Alt+PageUp` / `Alt+PageDown`   |
+| Scroll history by 3 lines | `Alt+Shift+PageUp` / `PageDown` |
+| Oldest line / live view   | `Alt+Home` / `Alt+End`          |
+| Wrap long lines or not    | `Alt+z`                         |
+| View left / right (no wrap) | `Alt+<` / `Alt+>`, Shift+wheel |
 | Close window              | `Alt+x`                         |
 | Quit goat                 | `Alt+q`                         |
 

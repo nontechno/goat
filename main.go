@@ -314,10 +314,14 @@ func (m *WM) applyHostColors(w *Window) {
 // render draws one frame, with the host cursor at the focused program's
 // cursor (or hidden).
 func (m *WM) render(scr *hostScreen) error {
+	if f := m.focused; f != nil {
+		f.followCursorView() // no-wrap: keep what is being typed in view
+	}
 	var cur cursorState
 	if x, y, ok := m.cursorFor(); ok {
 		w := m.focused
-		cur = cursorState{visible: true, x: x, y: y, shape: w.cursorShape, blink: w.cursorBlink}
+		cur = cursorState{visible: true, x: x, y: y, shape: w.cursorShape, blink: w.cursorBlink,
+			color: w.fgColor} // the window's Alt+b text color, if any
 	}
 	m.dirty = false
 	return scr.render(scene{m}, cur)

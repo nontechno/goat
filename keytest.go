@@ -69,7 +69,10 @@ func describeKeyBytes(cfg *Config, b []byte, macOn bool) string {
 	switch {
 	case len(b) == 2 && b[0] == 0x1b && b[1] >= 0x20 && b[1] < 0x7f:
 		return fmt.Sprintf("Alt+%c, %s", b[1], shortcut(rune(b[1])))
-	case len(b) >= 3 && b[0] == 0x1b && (b[1] == '[' || b[1] == 'O'):
+	case len(b) >= 3 && b[0] == 0x1b && (b[1] == '[' || b[1] == 'O' || b[1] == 0x1b):
+		if name, ok := scrollKeyNames[string(b)]; ok {
+			return name
+		}
 		return "escape sequence (arrow, function key, ...)"
 	}
 	r, size := utf8.DecodeRune(b)
@@ -88,14 +91,32 @@ func describeKeyBytes(cfg *Config, b []byte, macOn bool) string {
 	return "plain character"
 }
 
+// scrollKeyNames are the common encodings of goat's history keys (xterm
+// modifier form, and Alt sent as an Esc prefix).
+var scrollKeyNames = map[string]string{
+	"\x1b[5;3~":   "Alt+PageUp, shortcut: scroll back a page",
+	"\x1b[6;3~":   "Alt+PageDown, shortcut: scroll forward a page",
+	"\x1b[5;4~":   "Alt+Shift+PageUp, shortcut: scroll back 3 lines",
+	"\x1b[6;4~":   "Alt+Shift+PageDown, shortcut: scroll forward 3 lines",
+	"\x1b[1;3H":   "Alt+Home, shortcut: oldest line",
+	"\x1b[1;3F":   "Alt+End, shortcut: back to the live view",
+	"\x1b\x1b[5~": "Alt+PageUp (Esc prefix), shortcut: scroll back a page",
+	"\x1b\x1b[6~": "Alt+PageDown (Esc prefix), shortcut: scroll forward a page",
+	"\x1b\x1b[H":  "Alt+Home (Esc prefix), shortcut: oldest line",
+	"\x1b\x1b[F":  "Alt+End (Esc prefix), shortcut: back to the live view",
+	"\x1b[5~":     "PageUp (no Alt: goes to the program)",
+	"\x1b[6~":     "PageDown (no Alt: goes to the program)",
+}
+
 var actionNames = map[action]string{}
 
 func init() {
 	for a, n := range map[action]string{
 		actNewWindow: "new window", actFocusNext: "focus next", actFocusPrev: "focus previous",
 		actQuit: "quit", actCloseWindow: "close window", actPinWindow: "pin window",
-		actCycleBackground: "next colors",
-		actMoveLeft:        "move left", actMoveDown: "move down", actMoveUp: "move up", actMoveRight: "move right",
+		actCycleBackground: "next colors", actToggleWrap: "wrap / no wrap",
+		actScrollLeft: "view left", actScrollRight: "view right",
+		actMoveLeft: "move left", actMoveDown: "move down", actMoveUp: "move up", actMoveRight: "move right",
 		actResizeLeft: "narrower", actResizeDown: "taller", actResizeUp: "shorter", actResizeRight: "wider",
 	} {
 		actionNames[a] = n

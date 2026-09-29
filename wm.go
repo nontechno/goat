@@ -100,6 +100,7 @@ func (m *WM) setStatus(msg string, d time.Duration) {
 func (m *WM) startBackground() error {
 	win, err := newWindow(0, m.shell(), 0, 0, m.cols, m.areaH(), winOpts{
 		background: true, scrollback: m.cfg.ScrollbackLines, dir: m.dir,
+		nowrap: !m.cfg.WrapLines, nowrapW: m.cfg.NowrapWidth,
 	}, m.out)
 	if err != nil {
 		return err
@@ -240,6 +241,7 @@ func (m *WM) newWindow() error {
 	opts := winOpts{
 		decorated: !m.cfg.DisableMouse, frame: m.cfg.frame,
 		scrollback: m.cfg.ScrollbackLines, dir: m.newWindowDir(),
+		nowrap: !m.cfg.WrapLines, nowrapW: m.cfg.NowrapWidth,
 	}
 	win, err := newWindow(m.nextID, m.shell(), x, y, w, h, opts, m.out)
 	if err != nil && opts.dir != m.dir { // e.g. the directory just vanished
@@ -401,6 +403,21 @@ func (m *WM) run(a action) error {
 		m.resizeFocused(0, 1)
 	case actCycleBackground:
 		m.cycleBackground()
+	case actToggleWrap:
+		if w := m.focused; w != nil {
+			w.setWrap(w.nowrap)
+			m.setStatus(fmt.Sprintf("window %d: %s", m.number(w), map[bool]string{
+				true:  "long lines run past the edge (scroll sideways: Alt+< / Alt+>, Shift+wheel)",
+				false: "long lines wrap"}[w.nowrap]), 3*time.Second)
+			m.dirty = true
+		}
+	case actScrollLeft, actScrollRight:
+		if w := m.focused; w != nil {
+			step := max(w.contentW()/2, 1)
+			if w.scrollSideways(pick(a == actScrollLeft, -step, step)) {
+				m.dirty = true
+			}
+		}
 	case actPinWindow:
 		if w := m.focused; w != nil && !w.background {
 			w.pinned = !w.pinned
@@ -424,11 +441,23 @@ func (m *WM) shortcut(k uv.Key) (bool, error) {
 		return true, m.run(pick(shift, actResizeUp, actMoveUp))
 	case uv.KeyDown:
 		return true, m.run(pick(shift, actResizeDown, actMoveDown))
+	// History: Alt+PageUp/PageDown by a page, with Shift a few lines;
+	// Alt+Home to the oldest line, Alt+End back to the live view.
 	case uv.KeyPgUp:
-		m.scrollFocused(max(m.focusedPage(), 1))
+		m.scrollFocused(pick(shift, scrollStep, max(m.focusedPage(), 1)))
 		return true, nil
 	case uv.KeyPgDown:
-		m.scrollFocused(-max(m.focusedPage(), 1))
+		m.scrollFocused(-pick(shift, scrollStep, max(m.focusedPage(), 1)))
+		return true, nil
+	case uv.KeyHome:
+		if w := m.focused; w != nil {
+			m.scrollWindow(w, w.emu.ScrollbackLen())
+		}
+		return true, nil
+	case uv.KeyEnd:
+		if w := m.focused; w != nil {
+			m.scrollWindow(w, -w.scroll)
+		}
 		return true, nil
 	}
 	r, ok := bindingRune(k)
@@ -453,7 +482,10 @@ func (m *WM) shortcut(k uv.Key) (bool, error) {
 	return false, nil
 }
 
-func pick(cond bool, a, b action) action {
+// scrollStep is how many lines Alt+Shift+PageUp/PageDown scroll.
+const scrollStep = 3
+
+func pick[T any](cond bool, a, b T) T {
 	if cond {
 		return a
 	}
@@ -708,9 +740,20 @@ func (m *WM) handleMouse(ev uv.MouseEvent) {
 		if w == nil || y == m.rows-1 {
 			return
 		}
+		sideways := mo.Button == uv.MouseWheelLeft || mo.Button == uv.MouseWheelRight ||
+			mo.Mod.Contains(uv.ModShift)
 		switch {
-		case w.inContent(x, y) && w.wantsMouse():
+		case w.inContent(x, y) && w.wantsMouse() && !mo.Mod.Contains(uv.ModShift):
 			m.forwardMouse(w, ev)
+		case sideways:
+			// Shift+wheel or a sideways wheel: scroll a no-wrap view.
+			n := 8
+			if mo.Button == uv.MouseWheelUp || mo.Button == uv.MouseWheelLeft {
+				n = -n
+			}
+			if w.scrollSideways(n) {
+				m.dirty = true
+			}
 		case w.emu.IsAltScreen():
 			// Like xterm's alternate-scroll mode: wheel = arrow keys, so
 			// less, man and friends scroll.
