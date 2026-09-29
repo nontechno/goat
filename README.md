@@ -27,7 +27,9 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 - A full-screen background shell (window 0) in the launch folder, always
   underneath; floating, overlapping windows on top; pin one to keep it above
   the others
-- Status bar: a numbered tab per window (click to focus), messages, a clock
+- Status bar: a numbered tab per window (click to focus), messages, a clock,
+  and optionally the active window's directory (`status_show_dir`)
+- New windows (Alt+c) start in the active window's current directory
 - Per-window colors: Alt+b steps through background:text pairs you configure;
   the border takes the background too. Each new window starts at the next
   pair after the window it came from (`new_window_next_colors = false` to

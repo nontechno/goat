@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,6 +41,8 @@ type Window struct {
 	shellName string
 	procName  string // foreground process, from /proc
 	oscTitle  string // set by the program (OSC 0/2)
+	oscDir    string // working directory the shell reported (OSC 7)
+	dir       string // last known working directory (for the status bar)
 
 	appCursor     bool
 	mouseModes    map[ansi.DECMode]bool
@@ -159,6 +162,7 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	})
 	win.emu.SetCallbacks(vt.Callbacks{
 		Title:            func(s string) { win.oscTitle = s },
+		WorkingDirectory: func(s string) { win.oscDir = parseOSC7(s) },
 		CursorVisibility: func(v bool) { win.cursorVisible = v },
 		CursorStyle: func(s vt.CursorStyle, steady bool) {
 			// x/vt passes "steady", not "blink": CSI 5 q (blinking bar)
@@ -316,6 +320,49 @@ func (w *Window) refreshProcName() bool {
 	}
 	w.procName = name
 	return true
+}
+
+// currentDir is the working directory of the program in the window: the
+// foreground process's (Linux), else what the shell last reported (OSC 7).
+func (w *Window) currentDir() string {
+	if w.closed || w.ptmx == nil || w.cmd == nil {
+		return w.oscDir
+	}
+	if d := foregroundDir(w.ptmx, w.cmd); d != "" {
+		return d
+	}
+	return w.oscDir
+}
+
+// refreshDir updates w.dir; reports a change.
+func (w *Window) refreshDir() bool {
+	d := w.currentDir()
+	if d == "" || d == w.dir {
+		return false
+	}
+	w.dir = d
+	return true
+}
+
+// parseOSC7 turns an OSC 7 report ("file://host/path", percent-encoded) into
+// a path; anything else is taken as a plain path.
+func parseOSC7(s string) string {
+	if u, err := url.Parse(s); err == nil && u.Scheme == "file" {
+		return u.Path
+	}
+	if strings.HasPrefix(s, "/") {
+		return s
+	}
+	return ""
+}
+
+// usableDir reports whether a new shell can start in d.
+func usableDir(d string) bool {
+	if d == "" {
+		return false
+	}
+	fi, err := os.Stat(d)
+	return err == nil && fi.IsDir() && syscall.Access(d, 1 /* X_OK */) == nil
 }
 
 // displayTitle is the name shown in the title bar.

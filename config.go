@@ -191,6 +191,10 @@ type Config struct {
 	// Lines of history kept per window (mouse wheel / Alt+PageUp to view).
 	ScrollbackLines int `toml:"scrollback_lines"`
 
+	// Show the active window's current directory in the status bar, left of
+	// the clock (shortened from the left when it doesn't fit).
+	StatusShowDir bool `toml:"status_show_dir"`
+
 	// Where window titles come from: "process" (the foreground program's
 	// name, like float) or "terminal" (the title the program sets with
 	// OSC 0/2, falling back to the process name).
@@ -235,6 +239,12 @@ func DefaultConfig() *Config {
 				pair(52, 224),  // maroon / pale pink
 				pair(53, 225),  // plum / lavender
 				pair(58, 229),  // olive / pale yellow
+				pair(23, 195),  // teal / pale cyan
+				pair(25, 189),  // cobalt / periwinkle
+				pair(94, 223),  // brown / wheat
+				pair(54, 183),  // indigo / light violet
+				pair(130, 230), // rust / cream
+				pair(29, 157),  // sea green / mint
 			},
 			NewWindowNextColors: true,
 		},

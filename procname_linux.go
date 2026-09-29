@@ -11,19 +11,48 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// foregroundProcessName returns the command name of the PTY's foreground
-// process group leader (e.g. "vim" while vim runs in the shell).
-func foregroundProcessName(ptmx *os.File, cmd *exec.Cmd) string {
+// foregroundPid is the PTY's foreground process group leader (e.g. vim while
+// vim runs in the shell), or the shell itself; 0 if neither is known.
+func foregroundPid(ptmx *os.File, cmd *exec.Cmd) int {
 	pgrp, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
-	if err != nil || pgrp <= 0 {
-		if cmd.Process == nil {
-			return ""
-		}
-		pgrp = cmd.Process.Pid
+	if err == nil && pgrp > 0 {
+		return pgrp
+	}
+	if cmd.Process != nil {
+		return cmd.Process.Pid
+	}
+	return 0
+}
+
+// foregroundProcessName returns the command name of the PTY's foreground
+// process group leader.
+func foregroundProcessName(ptmx *os.File, cmd *exec.Cmd) string {
+	pgrp := foregroundPid(ptmx, cmd)
+	if pgrp == 0 {
+		return ""
 	}
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pgrp))
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// foregroundDir returns the working directory of the PTY's foreground
+// process, falling back to the shell's ("" if neither can be read, e.g. a
+// process of another user).
+func foregroundDir(ptmx *os.File, cmd *exec.Cmd) string {
+	pids := []int{foregroundPid(ptmx, cmd)}
+	if cmd.Process != nil {
+		pids = append(pids, cmd.Process.Pid)
+	}
+	for _, pid := range pids {
+		if pid <= 0 {
+			continue
+		}
+		if d, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+			return strings.TrimSuffix(d, " (deleted)")
+		}
+	}
+	return ""
 }

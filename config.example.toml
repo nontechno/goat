@@ -57,6 +57,11 @@ clipboard_osc52 = true
 # "xclip -selection clipboard".
 copy_command = ""
 
+# Show the active window's current directory in the status bar, left of the
+# clock (~ for your home folder; shortened from the left, e.g. "…/src/goat",
+# when it doesn't fit). New windows (Alt+c) always start in that directory.
+status_show_dir = false
+
 # Window title source:
 #   "process"  - name of the program running in the window (like float)
 #   "terminal" - the title the program sets (OSC 0/2), else the process name
@@ -92,6 +97,12 @@ window_colors = [
   "52:224",    # maroon / pale pink
   "53:225",    # plum / lavender
   "58:229",    # olive / pale yellow
+  "23:195",    # teal / pale cyan
+  "25:189",    # cobalt / periwinkle
+  "94:223",    # brown / wheat
+  "54:183",    # indigo / light violet
+  "130:230",   # rust / cream
+  "29:157",    # sea green / mint
 ]
 
 # When true, a new window (Alt+c) starts with the scheme after the focused

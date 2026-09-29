@@ -43,7 +43,8 @@ type WM struct {
 	cfg        *Config
 	warnings   []string
 	cols, rows int
-	macOption  bool // treat macOS Option characters as Alt+key (mac_option_keys)
+	macOption  bool   // treat macOS Option characters as Alt+key (mac_option_keys)
+	home       string // $HOME, shown as ~ in the status bar
 
 	windows []*Window // z-order, bottom first; pinned windows sit on top
 	focused *Window
@@ -123,6 +124,7 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		// megabytes piling up here (which would make Ctrl+C take effect late).
 		nextID: 1, out: make(chan ptyMsg, 16),
 		escFire: make(chan struct{}, 1), dirty: true,
+		home:      os.Getenv("HOME"),
 		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
 	}
 }
@@ -159,6 +161,9 @@ func (m *WM) focus(w *Window) {
 		w.emu.Focus()
 	}
 	m.raise(w)
+	if m.cfg.StatusShowDir {
+		w.refreshDir()
+	}
 	m.dirty = true
 }
 
@@ -232,10 +237,15 @@ func (m *WM) newWindow() error {
 	if y < 0 || y+h > area {
 		y = 0
 	}
-	win, err := newWindow(m.nextID, m.shell(), x, y, w, h, winOpts{
+	opts := winOpts{
 		decorated: !m.cfg.DisableMouse, frame: m.cfg.frame,
-		scrollback: m.cfg.ScrollbackLines,
-	}, m.out)
+		scrollback: m.cfg.ScrollbackLines, dir: m.newWindowDir(),
+	}
+	win, err := newWindow(m.nextID, m.shell(), x, y, w, h, opts, m.out)
+	if err != nil && opts.dir != m.dir { // e.g. the directory just vanished
+		opts.dir = m.dir
+		win, err = newWindow(m.nextID, m.shell(), x, y, w, h, opts, m.out)
+	}
 	if err != nil {
 		return err
 	}
@@ -249,6 +259,17 @@ func (m *WM) newWindow() error {
 	m.windows = append(m.windows, win)
 	m.focus(win)
 	return nil
+}
+
+// newWindowDir is where a new window's shell starts: the active window's
+// current directory if it can be used, else the folder goat was started in.
+func (m *WM) newWindowDir() string {
+	if f := m.focused; f != nil {
+		if d := f.currentDir(); usableDir(d) {
+			return d
+		}
+	}
+	return m.dir
 }
 
 // remove drops a window (closed by the user or exited) and refocuses.
@@ -838,6 +859,9 @@ func (m *WM) tick(now time.Time) {
 		if w.refreshProcName() {
 			m.dirty = true
 		}
+	}
+	if f := m.focused; f != nil && m.cfg.StatusShowDir && f.refreshDir() {
+		m.dirty = true
 	}
 	if m.status != "" && now.After(m.statusUntil) {
 		m.status = ""

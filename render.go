@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"strings"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -255,23 +256,77 @@ func (m *WM) drawStatus(scr uv.Screen) {
 		x = end
 	}
 
-	if m.status != "" {
-		room := clockX - x - 2
-		msg := m.status
-		if uniseg.StringWidth(msg) > room && room > 1 {
-			cs := textCells(msg, base, room-1)
-			msg = ""
-			for _, c := range cs {
-				msg += c.Content
-			}
-			msg += "…"
-		}
+	// Right of the tabs, from the clock leftwards: the directory, then the
+	// message. The message (short-lived) gets space first; the directory
+	// takes what is left, keeping its end ("…/src/goat").
+	end := clockX
+	room := clockX - x - 1 // one blank after the tabs
+	var msgCells []uv.Cell
+	if m.status != "" && room > 1 {
 		st := base
 		st.Fg = m.cfg.Theme.HintText.C
-		if cs := textCells(msg, st, max(room, 0)); len(cs) > 0 {
-			putCells(scr, clockX-cellsWidth(cs)-1, y, cs)
-		}
+		msgCells = textCells(fitStart(m.status, room), st, room)
+		room -= cellsWidth(msgCells) + 1
 	}
+	if m.cfg.StatusShowDir && m.focused != nil && m.focused.dir != "" && room > 2 {
+		dir := fitEnd(homeShort(m.focused.dir, m.home), room-1)
+		cs := textCells(dir, base, room-1)
+		end -= cellsWidth(cs)
+		putCells(scr, end, y, cs)
+		end-- // a blank between message and directory
+	}
+	if len(msgCells) > 0 {
+		putCells(scr, end-cellsWidth(msgCells)-1, y, msgCells)
+	}
+}
+
+// fitStart shortens s to at most w columns by cutting its end ("abc…").
+func fitStart(s string, w int) string {
+	if uniseg.StringWidth(s) <= w {
+		return s
+	}
+	if w < 2 {
+		return ""
+	}
+	out := ""
+	for _, c := range textCells(s, uv.Style{}, w-1) {
+		out += c.Content
+	}
+	return out + "…"
+}
+
+// fitEnd shortens s to at most w columns by cutting its start ("…xyz").
+func fitEnd(s string, w int) string {
+	if uniseg.StringWidth(s) <= w {
+		return s
+	}
+	if w < 2 {
+		return ""
+	}
+	cs := textCells(s, uv.Style{}, 1<<30)
+	used, i := 0, len(cs)
+	for i > 0 && used+cs[i-1].Width <= w-1 {
+		i--
+		used += cs[i].Width
+	}
+	out := "…"
+	for _, c := range cs[i:] {
+		out += c.Content
+	}
+	return out
+}
+
+// homeShort writes a path under home as ~/...
+func homeShort(dir, home string) string {
+	switch {
+	case home == "" || home == "/":
+		return dir
+	case dir == home:
+		return "~"
+	case strings.HasPrefix(dir, home+"/"):
+		return "~" + dir[len(home):]
+	}
+	return dir
 }
 
 // cursorFor returns where the host cursor should be: the focused program's
