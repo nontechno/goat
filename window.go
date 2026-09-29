@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +20,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 // Window is one floating terminal window.
@@ -148,6 +151,9 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	cw, ch := win.contentW(), win.contentH()
 
 	args := strings.Fields(shell)
+	if len(args) == 0 {
+		return nil, errors.New("no shell to start")
+	}
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = childEnv()
 	cmd.Dir = o.dir
@@ -155,10 +161,12 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	if err != nil {
 		return nil, err
 	}
+	ptmx = pollable(ptmx)
 	win.cmd, win.ptmx = cmd, ptmx
 	win.shellName = filepath.Base(args[0])
 
 	win.emu = vt.NewEmulator(win.emuWidth(cw), ch)
+	win.emu.SetLogger(vtLogger{win: id}) // log_level = "debug": unhandled sequences
 	win.emu.SetScrollbackSize(o.scrollback)
 	// OSC 52: a program in the window sets the clipboard (vim, tmux, ...).
 	win.emu.RegisterOscHandler(52, func(data []byte) bool {
@@ -196,6 +204,11 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 				out <- ptyMsg{w: win, data: append([]byte(nil), buf[:n]...)}
 			}
 			if err != nil {
+				// EIO: the program side closed (it exited); ErrClosed: the
+				// window was closed. Anything else is unexpected.
+				if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) && !errors.Is(err, syscall.EIO) {
+					logger.Warn("reading program output failed", "window", id, "err", err)
+				}
 				return
 			}
 		}
@@ -255,6 +268,15 @@ func (w *Window) feed(data []byte) (err error) {
 	}
 	defer func() {
 		if p := recover(); p != nil {
+			cur := w.emu.CursorPosition()
+			logger.Error("emulator failed; window reset",
+				"window", w.id, "panic", fmt.Sprint(p),
+				"emu", fmt.Sprintf("%dx%d", w.emu.Width(), w.emu.Height()),
+				"cursor", fmt.Sprintf("%d,%d", cur.X, cur.Y), "alt_screen", w.emu.IsAltScreen(),
+				"nowrap", w.nowrap, "program", w.displayTitle("process"),
+				// the output it failed on: enough to reproduce with vt alone
+				"output", excerpt(data, 2048),
+				"stack", string(debug.Stack()))
 			err = fmt.Errorf("terminal emulator failed (%v); window reset", p)
 			func() {
 				defer func() { _ = recover() }()
@@ -263,11 +285,11 @@ func (w *Window) feed(data []byte) (err error) {
 			w.scroll = 0
 		}
 	}()
-	before := w.emu.ScrollbackLen()
+	before := w.emu.ScrollbackPushed()
 	_, _ = w.emu.Write(data)
 	if w.scroll > 0 { // keep the viewed history lines steady
-		after := w.emu.ScrollbackLen()
-		w.scroll = min(w.scroll+max(after-before, 0), after)
+		added := w.emu.ScrollbackPushed() - before // counted even when the history is full
+		w.scroll = min(w.scroll+max(added, 0), w.emu.ScrollbackLen())
 	}
 	return nil
 }
@@ -290,7 +312,7 @@ func (w *Window) setGeometry(x, y, width, height int) {
 	cw, ch := w.contentW(), w.contentH()
 	if cw != oldW || ch != oldH {
 		w.emu.Resize(w.emuWidth(cw), ch)
-		_ = pty.Setsize(w.ptmx, &pty.Winsize{Cols: uint16(cw), Rows: uint16(ch)})
+		setWinsize(w.ptmx, cw, ch)
 		w.scroll = min(w.scroll, w.emu.ScrollbackLen())
 		w.hscroll = min(w.hscroll, w.maxHScroll())
 	}
@@ -576,7 +598,49 @@ func (q *inputQueue) drainTo(dst io.Writer) {
 		q.buf = nil
 		q.mu.Unlock()
 		if _, err := dst.Write(data); err != nil {
+			if !errors.Is(err, os.ErrClosed) && !errors.Is(err, syscall.EIO) {
+				logger.Warn("writing to program failed; input dropped from now on",
+					"err", err, "bytes", len(data))
+			}
 			return
 		}
 	}
+}
+
+// pollable returns the PTY master as a non-blocking file managed by Go's
+// poller. creack/pty hands it over in blocking mode (its ioctls call Fd(),
+// which switches a file to blocking), and then Close can't interrupt the
+// reader's pending Read: a closed window's reader goroutine and PTY would
+// live on for as long as anything (a job that ignores SIGHUP) keeps the
+// terminal open. Afterwards, Fd() must not be called on it again; ioctls go
+// through ptyControl.
+func pollable(f *os.File) *os.File {
+	fd, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		return f
+	}
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		_ = syscall.Close(fd)
+		return f
+	}
+	nf := os.NewFile(uintptr(fd), f.Name())
+	_ = f.Close()
+	return nf
+}
+
+// ptyControl runs fn with the PTY's descriptor without making it blocking.
+func ptyControl(f *os.File, fn func(fd int)) {
+	if f == nil {
+		return
+	}
+	if sc, err := f.SyscallConn(); err == nil {
+		_ = sc.Control(func(fd uintptr) { fn(int(fd)) })
+	}
+}
+
+// setWinsize tells the program in the PTY its window size (TIOCSWINSZ).
+func setWinsize(f *os.File, cols, rows int) {
+	ptyControl(f, func(fd int) {
+		_ = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
+	})
 }

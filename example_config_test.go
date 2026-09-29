@@ -17,7 +17,7 @@ func TestExampleConfig(t *testing.T) {
 	}
 	d := DefaultConfig()
 	if c.Keys != d.Keys || c.Layout != d.Layout || c.AltTimeoutMs != d.AltTimeoutMs ||
-		c.ScrollbackLines != d.ScrollbackLines || c.MacOptionKeys != d.MacOptionKeys || c.StatusShowDir != d.StatusShowDir || c.TitleSource != d.TitleSource ||
+		c.ScrollbackLines != d.ScrollbackLines || c.MacOptionKeys != d.MacOptionKeys || c.StatusShowDir != d.StatusShowDir || c.LogFile != d.LogFile || c.LogLevel != d.LogLevel || c.TitleSource != d.TitleSource ||
 		c.ClipboardOSC52 != d.ClipboardOSC52 || c.CopyCommand != d.CopyCommand ||
 		len(c.Theme.WindowColors) != len(d.Theme.WindowColors) ||
 		c.Theme.NewWindowNextColors != d.Theme.NewWindowNextColors {

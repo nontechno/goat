@@ -43,18 +43,28 @@ type selection struct {
 
 const multiClickTime = 400 * time.Millisecond
 
+// Absolute lines number every line ever in a window's history, then its
+// screen: a line keeps its number while it is there, also once the history
+// is full and each new line drops the oldest (so a selection stays on its
+// text while output streams).
+
 // absLine maps a content row on screen to an absolute line.
 func (w *Window) absLine(row int) int {
-	return w.emu.ScrollbackLen() - w.scroll + row
+	return w.emu.ScrollbackPushed() - w.scroll + row
 }
 
-// cellAtAbs returns the cell at an absolute line (nil if none).
+// cellAtAbs returns the cell at an absolute line (nil if none, e.g. a line
+// already dropped from the history).
 func (w *Window) cellAtAbs(col, line int) *uv.Cell {
 	sb := w.emu.ScrollbackLen()
-	if line < sb {
-		return w.emu.ScrollbackCellAt(col, line)
+	i := line - (w.emu.ScrollbackPushed() - sb) // index into history ++ screen
+	switch {
+	case i < 0:
+		return nil
+	case i < sb:
+		return w.emu.ScrollbackCellAt(col, i)
 	}
-	return w.emu.CellAt(col, line-sb)
+	return w.emu.CellAt(col, i-sb)
 }
 
 // posAt converts a screen point to a selection position in w, clamped to the
@@ -112,12 +122,16 @@ func (s *selection) bounds() (selPos, selPos) {
 	case selLine:
 		a.col, b.col = 0, w.emu.Width()-1
 	case selWord:
+		// Columns may lie beyond the lines now (the window was made
+		// narrower, or wrapping was turned back on).
 		ra := w.lineRunes(a.line)
+		a.col = min(a.col, len(ra)-1)
 		for a.col > 0 && isWordRune(ra[a.col-1]) && isWordRune(ra[a.col]) {
 			a.col--
 		}
 		rb := w.lineRunes(b.line)
-		for b.col < len(rb)-1 && isWordRune(rb[b.col]) && isWordRune(rb[b.col+1]) {
+		b.col = min(b.col, len(rb)-1)
+		for b.col < len(rb)-1 && b.col >= 0 && isWordRune(rb[b.col]) && isWordRune(rb[b.col+1]) {
 			b.col++
 		}
 	}

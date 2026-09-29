@@ -77,6 +77,18 @@ copy_command = ""
 # when it doesn't fit). New windows (Alt+c) always start in that directory.
 status_show_dir = true
 
+# Log of problems, for diagnosing them: crashes (with a stack trace and the
+# state of every window), a window's terminal emulator failing (with the
+# output it failed on), config problems, clipboard commands failing, windows
+# that can't start, ... Each session starts with a line describing it (goat
+# version, OS, TERM, terminal program, SSH/tmux, screen size).
+#   log_file:  "" = $XDG_STATE_HOME/goat/goat.log (~/.local/state/goat/goat.log);
+#              "none" = no log; or a path (~/ allowed). Rotated to .1 at 4 MB.
+#   log_level: "error", "warn", "info" (also windows opening/closing and their
+#              exit status) or "debug" (also escape sequences goat doesn't handle)
+log_file = ""
+log_level = "info"
+
 # Window title source:
 #   "process"  - name of the program running in the window (like float)
 #   "terminal" - the title the program sets (OSC 0/2), else the process name

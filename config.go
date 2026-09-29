@@ -196,6 +196,12 @@ type Config struct {
 	// Lines of history kept per window (mouse wheel / Alt+PageUp to view).
 	ScrollbackLines int `toml:"scrollback_lines"`
 
+	// Log of problems, warnings and crashes: a file ("" = the default,
+	// $XDG_STATE_HOME/goat/goat.log or ~/.local/state/goat/goat.log;
+	// "none" = no log) and how much goes in (error, warn, info, debug).
+	LogFile  string `toml:"log_file"`
+	LogLevel string `toml:"log_level"`
+
 	// Wrap long lines at the window's edge (true), or let them run on and
 	// scroll the view sideways (false; keys.toggle_wrap switches per window).
 	// Not wrapping, a window holds lines up to nowrap_width columns.
@@ -233,6 +239,7 @@ func DefaultConfig() *Config {
 		PollIntervalMs:  16,
 		ScrollbackLines: 1000,
 		WrapLines:       true,
+		LogLevel:        "info",
 		NowrapWidth:     512,
 		TitleSource:     "process",
 		Frame:           "full",
@@ -338,6 +345,10 @@ func (c *Config) finish(md *toml.MetaData) []string {
 
 	if c.AltTimeoutMs < 0 {
 		c.AltTimeoutMs = 0
+	}
+	if _, ok := parseLogLevel(c.LogLevel); !ok {
+		warn("log_level = %q: use error, warn, info or debug (using info)", c.LogLevel)
+		c.LogLevel = "info"
 	}
 	if c.NowrapWidth < 80 || c.NowrapWidth > 4096 {
 		warn("nowrap_width = %d: want 80..4096 (using 512)", c.NowrapWidth)

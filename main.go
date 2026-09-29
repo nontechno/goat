@@ -14,6 +14,7 @@ import (
 	"image/color"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"syscall"
@@ -65,19 +66,46 @@ func main() {
 		}
 		return
 	}
-	err := run(cfg, warns)
+	if w, closeLog := setupLog(cfg); true {
+		defer closeLog()
+		if w != "" {
+			warns = append(warns, w)
+		}
+	}
+	err := run(cfg, usedPath, warns)
 	// Printed after the full-screen UI is gone, so they stay visible.
 	for _, w := range warns {
 		fmt.Fprintln(os.Stderr, "goat: warning:", w)
 	}
 	if err != nil {
+		logger.Error("exit", "err", err)
 		fmt.Fprintln(os.Stderr, "goat:", err)
 		pprof.StopCPUProfile()
 		os.Exit(1)
 	}
+	logger.Info("exit")
 }
 
-func run(cfg *Config, warns []string) (err error) {
+// crashState describes goat's state for a crash report (set once the window
+// manager exists).
+var crashState = func() string { return "" }
+
+// reportCrash logs a panic in the main loop with its stack and goat's state,
+// after which the caller restores the terminal and tells the user.
+func reportCrash(r any) {
+	stack := string(debug.Stack())
+	state := func() (s string) {
+		defer func() {
+			if e := recover(); e != nil {
+				s = fmt.Sprintf("(state unavailable: %v)", e)
+			}
+		}()
+		return crashState()
+	}()
+	logger.Error("crash", "panic", fmt.Sprint(r), "state", state, "stack", stack)
+}
+
+func run(cfg *Config, cfgPath string, warns []string) (err error) {
 	in, out := os.Stdin, os.Stdout
 	if !term.IsTerminal(in.Fd()) || !term.IsTerminal(out.Fd()) {
 		return errors.New("stdin and stdout must be a terminal")
@@ -92,6 +120,10 @@ func run(cfg *Config, warns []string) (err error) {
 	}
 	scr := newHostScreen(out, os.Environ(), cols, rows)
 	mouse := !cfg.DisableMouse
+	logSessionStart(cfgPath, cols, rows)
+	for _, w := range warns {
+		logger.Warn("config", "problem", w, "file", cfgPath)
+	}
 
 	// Always give the user their terminal back, even on a panic.
 	restored := false
@@ -105,8 +137,15 @@ func run(cfg *Config, warns []string) (err error) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
+			reportCrash(r)
 			restore()
-			panic(r)
+			fmt.Fprintf(os.Stderr, "goat crashed: %v\n", r)
+			if logPath != "" {
+				fmt.Fprintf(os.Stderr, "details (stack trace, window state) are in %s\n", logPath)
+			} else {
+				fmt.Fprintf(os.Stderr, "%s\n", debug.Stack())
+			}
+			os.Exit(2)
 		}
 		restore()
 	}()
@@ -130,8 +169,9 @@ func run(cfg *Config, warns []string) (err error) {
 
 	m := newWM(cfg, warns, cols, rows)
 	m.dir, _ = os.Getwd()
+	crashState = m.snapshot
 	if err := m.startBackground(); err != nil {
-		return fmt.Errorf("starting shell: %w", err)
+		return fmt.Errorf("starting shell %q: %w", m.shell(), err)
 	}
 	if len(warns) > 0 {
 		msg := "config: " + warns[0]
@@ -178,6 +218,7 @@ func run(cfg *Config, warns []string) (err error) {
 
 	handle := func(ev uv.Event) {
 		if e := m.handleEvent(ev, scr); e != nil {
+			logger.Warn("event", "err", e, "event", fmt.Sprintf("%T", ev))
 			m.setStatus(e.Error(), 10*time.Second)
 		}
 	}
@@ -191,6 +232,7 @@ func run(cfg *Config, warns []string) (err error) {
 		case <-m.escFire:
 			m.escExpired()
 		case msg := <-copyErrs:
+			logger.Warn("clipboard", "err", msg, "command", strings.Join(copyCmd, " "))
 			m.setStatus(msg, 8*time.Second)
 		case now := <-titles.C:
 			m.tick(now)
@@ -200,7 +242,8 @@ func run(cfg *Config, warns []string) (err error) {
 			if c, h, err := term.GetSize(out.Fd()); err == nil && c > 0 && h > 0 {
 				handle(uv.WindowSizeEvent{Width: c, Height: h})
 			}
-		case <-sigs:
+		case s := <-sigs:
+			logger.Info("signal", "signal", s.String())
 			m.quit = true
 		}
 		// Work through what else is waiting, input first, spending at most
@@ -239,7 +282,7 @@ func run(cfg *Config, warns []string) (err error) {
 		}
 		if err := m.render(scr); err != nil {
 			m.closeAll()
-			return err
+			return fmt.Errorf("writing to the terminal: %w", err)
 		}
 		lastFrame = time.Now()
 	}

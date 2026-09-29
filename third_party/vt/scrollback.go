@@ -19,6 +19,18 @@ type Scrollback struct {
 	ring     []uv.Line // len(ring) == number of lines held
 	start    int       // index in ring of the oldest line
 	maxLines int
+	pushed   int // lines ever pushed (GOAT PATCH, see Pushed)
+}
+
+// Pushed returns how many lines were ever pushed, including those since
+// dropped (GOAT PATCH). Pushed()-Len() is the number of lines that were
+// dropped or cleared, so a line keeps the number Pushed()-Len()+i while it is
+// in the buffer, even once the buffer is full and every push drops one.
+func (s *Scrollback) Pushed() int {
+	if s == nil {
+		return 0
+	}
+	return s.pushed
 }
 
 // NewScrollback creates a new scrollback buffer with the given maximum number of lines.
@@ -60,6 +72,7 @@ func (s *Scrollback) Push(line uv.Line) {
 		n--
 	}
 	line = line[:n]
+	s.pushed++
 
 	if len(s.ring) < s.maxLines {
 		s.ring = append(s.ring, append(make(uv.Line, 0, n), line...))

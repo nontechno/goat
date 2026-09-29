@@ -49,6 +49,15 @@ crash the emulator and, with it, all of goat. The margins are now clamped
 to the screen when they are stored. The handlers still accept the same
 sequences as before, as upstream's tests expect.
 
+## Additions (scrollback.go, emulator.go, screen.go)
+
+- `Scrollback.Pushed` / `Emulator.ScrollbackPushed`: how many lines were
+  ever added to the history. Once the history is full, its length stops
+  changing while every new line drops the oldest one; goat numbers lines by
+  this count so a view scrolled back, and a selection, stay on their text.
+- `SetScrollbackSize(0)` turns the history off. It used to be ignored,
+  keeping the default of 10000 lines.
+
 ## Verification
 
 - vt's own test suite passes.

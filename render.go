@@ -33,8 +33,23 @@ func put(scr uv.Screen, x, y int, c *uv.Cell) {
 	}
 }
 
+// runeCell makes a one-column cell. Screen.SetCell copies the cell, so one
+// can be put at many positions.
 func runeCell(r rune, st uv.Style) *uv.Cell {
-	return &uv.Cell{Content: string(r), Width: 1, Style: st}
+	return &uv.Cell{Content: runeString(r), Width: 1, Style: st}
+}
+
+// runeStrings caches the strings of the few characters frames are drawn
+// with, so drawing doesn't allocate one per cell.
+var runeStrings = map[rune]string{}
+
+func runeString(r rune) string {
+	s, ok := runeStrings[r]
+	if !ok {
+		s = string(r)
+		runeStrings[r] = s
+	}
+	return s
 }
 
 // textCells splits s into grapheme cells, at most maxW columns wide.
@@ -117,8 +132,9 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	x0, y0, x1, y1 := w.x, w.y, w.x+w.w-1, w.y+w.h-1
 	line := func(y int, left, mid, right rune) {
 		put(scr, x0, y, runeCell(left, st))
+		m := runeCell(mid, st)
 		for x := x0 + 1; x < x1; x++ {
-			put(scr, x, y, runeCell(mid, st))
+			put(scr, x, y, m)
 		}
 		put(scr, x1, y, runeCell(right, st))
 	}
@@ -141,9 +157,10 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	}
 
 	line(y0, '╭', '─', '╮')
+	side := runeCell('│', st)
 	for y := y0 + 1; y < y1; y++ {
-		put(scr, x0, y, runeCell('│', st))
-		put(scr, x1, y, runeCell('│', st))
+		put(scr, x0, y, side)
+		put(scr, x1, y, side)
 	}
 	line(y1, '└', '─', '┘')
 	m.drawWrapIndicator(scr, w, st)
@@ -156,8 +173,9 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 		return
 	}
 	// Full: title row, centred, then the separator.
+	space := runeCell(' ', st)
 	for x := x0 + 1; x < x1; x++ {
-		put(scr, x, y0+1, runeCell(' ', st))
+		put(scr, x, y0+1, space)
 	}
 	cs := textCells(m.titleLabel(w), st, w.w-4)
 	putCells(scr, x0+1+(w.w-2-cellsWidth(cs))/2, y0+1, cs)
@@ -180,15 +198,18 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 	blank := uv.EmptyCell
 	blank.Style.Bg = w.bgColor
 
-	selected := func(row, col int) bool {
-		p := selPos{w.absLine(row), col + w.hscroll}
-		return hasSel && !p.before(selA) && !selB.before(p)
-	}
-
+	// One scratch cell for the whole window: SetCell copies it (a cell
+	// taken by address per position escapes, one allocation per cell).
+	cc := new(uv.Cell)
 	for row := range ch {
 		sy := cy + row
 		if sy < b.Min.Y || sy >= b.Max.Y {
 			continue
+		}
+		rowSel, line := false, 0
+		if hasSel {
+			line = w.absLine(row)
+			rowSel = line >= selA.line && line <= selB.line
 		}
 		for col := 0; col < cw; {
 			c := w.cellAt(col+w.hscroll, row)
@@ -202,9 +223,9 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 					}
 				}
 			} else {
-				cc := *c
+				*cc = *c
 				if c.IsZero() {
-					cc = uv.EmptyCell
+					*cc = uv.EmptyCell
 				}
 				if cc.Style.Bg == nil {
 					cc.Style.Bg = w.bgColor
@@ -212,10 +233,12 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 				if cc.Style.Fg == nil {
 					cc.Style.Fg = w.fgColor
 				}
-				if selected(row, col) {
-					cc.Style.Attrs ^= uv.AttrReverse
+				if rowSel {
+					if p := (selPos{line, col + w.hscroll}); !p.before(selA) && !selB.before(p) {
+						cc.Style.Attrs ^= uv.AttrReverse
+					}
 				}
-				put(scr, sx, sy, &cc)
+				put(scr, sx, sy, cc)
 			}
 			col += width
 		}
@@ -287,8 +310,9 @@ func (m *WM) drawScrollMarker(scr uv.Screen, w *Window) {
 func (m *WM) drawStatus(scr uv.Screen) {
 	y := m.rows - 1
 	base := uv.Style{Fg: m.cfg.Theme.StatusFg.C, Bg: m.cfg.Theme.StatusBg.C}
+	fill := &uv.Cell{Content: " ", Width: 1, Style: base}
 	for x := range m.cols {
-		put(scr, x, y, &uv.Cell{Content: " ", Width: 1, Style: base})
+		put(scr, x, y, fill)
 	}
 
 	clockSt := uv.Style{Fg: m.cfg.Theme.ClockFg.C, Bg: m.cfg.Theme.ClockBg.C, Attrs: uv.AttrBold}

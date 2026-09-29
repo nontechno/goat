@@ -14,7 +14,8 @@ import (
 // foregroundPid is the PTY's foreground process group leader (e.g. vim while
 // vim runs in the shell), or the shell itself; 0 if neither is known.
 func foregroundPid(ptmx *os.File, cmd *exec.Cmd) int {
-	pgrp, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
+	pgrp, err := 0, error(nil)
+	ptyControl(ptmx, func(fd int) { pgrp, err = unix.IoctlGetInt(fd, unix.TIOCGPGRP) })
 	if err == nil && pgrp > 0 {
 		return pgrp
 	}

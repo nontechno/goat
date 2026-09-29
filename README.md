@@ -140,6 +140,16 @@ Mistakes in the config never stop goat: unknown keys and invalid values are
 shown in the status bar and listed again when goat exits, and defaults are
 used.
 
+## Log
+
+Problems are logged to `~/.local/state/goat/goat.log` (or
+`$XDG_STATE_HOME/goat/goat.log`; set `log_file` and `log_level` in the
+config). A crash is recorded there with its stack trace and the state of
+every window, and goat still gives you your terminal back and tells you
+where the report is. A window whose terminal emulator fails on some output
+is reset instead of taking goat down, and the log keeps that output, so the
+problem can be reproduced.
+
 ## Differences from float
 
 Fixed along the way:

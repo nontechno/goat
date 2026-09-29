@@ -462,6 +462,12 @@ func (e *Emulator) ScrollbackLen() int {
 	return sb.Len()
 }
 
+// ScrollbackPushed returns how many lines were ever added to the scrollback
+// (see [Scrollback.Pushed]; GOAT PATCH).
+func (e *Emulator) ScrollbackPushed() int {
+	return e.Scrollback().Pushed()
+}
+
 // ScrollbackCellAt returns the cell at the given position in the scrollback buffer.
 // x is the column, y is the line index (0 = oldest line in scrollback).
 // Returns nil if position is out of bounds.

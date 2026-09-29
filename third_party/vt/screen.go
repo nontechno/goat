@@ -417,7 +417,14 @@ func (s *Screen) SetScrollback(sb *Scrollback) {
 }
 
 // SetScrollbackSize sets the maximum number of lines in the scrollback buffer.
+//
+// GOAT PATCH: 0 (or less) disables the scrollback. It used to be ignored,
+// leaving the default of 10000 lines in place.
 func (s *Screen) SetScrollbackSize(maxLines int) {
+	if maxLines <= 0 {
+		s.scrollback = nil
+		return
+	}
 	if s.scrollback == nil {
 		s.scrollback = NewScrollback(maxLines)
 	} else {

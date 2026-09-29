@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -97,6 +98,30 @@ func (m *WM) setStatus(msg string, d time.Duration) {
 
 // startBackground starts the full-screen background shell in the launch
 // directory.
+// snapshot describes the windows for a crash report.
+func (m *WM) snapshot() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "screen=%dx%d windows=%d", m.cols, m.rows, len(m.windows))
+	if m.focused != nil {
+		fmt.Fprintf(&b, " focused=%d", m.focused.id)
+	}
+	if m.sel != nil && m.sel.win != nil {
+		fmt.Fprintf(&b, " selection=win%d %+v-%+v", m.sel.win.id, m.sel.anchor, m.sel.head)
+	}
+	for _, w := range m.windows {
+		fmt.Fprintf(&b, "; win%d at %d,%d %dx%d frame=%d bg=%v closed=%v",
+			w.id, w.x, w.y, w.w, w.h, w.frame, w.background, w.closed)
+		if w.emu != nil {
+			cur := w.emu.CursorPosition()
+			fmt.Fprintf(&b, " emu=%dx%d cursor=%d,%d alt=%v history=%d",
+				w.emu.Width(), w.emu.Height(), cur.X, cur.Y, w.emu.IsAltScreen(), w.emu.ScrollbackLen())
+		}
+		fmt.Fprintf(&b, " scroll=%d hscroll=%d nowrap=%v program=%q",
+			w.scroll, w.hscroll, w.nowrap, w.displayTitle("process"))
+	}
+	return b.String()
+}
+
 func (m *WM) startBackground() error {
 	win, err := newWindow(0, m.shell(), 0, 0, m.cols, m.areaH(), winOpts{
 		background: true, scrollback: m.cfg.ScrollbackLines, dir: m.dir,
@@ -206,10 +231,10 @@ func (m *WM) topAt(x, y int) *Window {
 // ---- window lifecycle --------------------------------------------------------
 
 func (m *WM) shell() string {
-	if m.cfg.Shell != "" {
-		return m.cfg.Shell
+	if s := strings.TrimSpace(m.cfg.Shell); s != "" {
+		return s
 	}
-	if s := os.Getenv("SHELL"); s != "" {
+	if s := strings.TrimSpace(os.Getenv("SHELL")); s != "" {
 		return s
 	}
 	return "/bin/sh"
@@ -245,12 +270,17 @@ func (m *WM) newWindow() error {
 	}
 	win, err := newWindow(m.nextID, m.shell(), x, y, w, h, opts, m.out)
 	if err != nil && opts.dir != m.dir { // e.g. the directory just vanished
+		logger.Warn("new window: can't start in the active window's directory; using the launch folder",
+			"dir", opts.dir, "err", err)
 		opts.dir = m.dir
 		win, err = newWindow(m.nextID, m.shell(), x, y, w, h, opts, m.out)
 	}
 	if err != nil {
+		logger.Error("new window failed", "shell", m.shell(), "dir", opts.dir, "err", err)
 		return err
 	}
+	logger.Info("window opened", "window", win.id, "shell", m.shell(), "dir", opts.dir,
+		"size", fmt.Sprintf("%dx%d", win.contentW(), win.contentH()))
 	m.nextID++
 	m.initBackground(win)
 	if m.cfg.Theme.NewWindowNextColors {
@@ -405,6 +435,7 @@ func (m *WM) run(a action) error {
 		m.cycleBackground()
 	case actToggleWrap:
 		if w := m.focused; w != nil {
+			m.clearSelectionIn(w) // its columns may not exist afterwards
 			w.setWrap(w.nowrap)
 			m.setStatus(fmt.Sprintf("window %d: %s", m.number(w), map[bool]string{
 				true:  "long lines run past the edge (scroll sideways: Alt+< / Alt+>, Shift+wheel)",
@@ -545,8 +576,7 @@ func (m *WM) handleKey(k uv.Key) error {
 
 	if w := m.focused; w != nil {
 		m.clearSelectionIn(w)
-		w.send(encodeKey(k, w.appCursor))
-		m.dirty = m.dirty || w.scroll != 0
+		m.sendFocused(encodeKey(k, w.appCursor)) // redraws if it was scrolled back
 	}
 	return nil
 }
@@ -791,6 +821,12 @@ func (m *WM) handlePty(msg ptyMsg) {
 		return // already removed
 	}
 	if msg.exited {
+		status := "?"
+		if ps := w.cmd.ProcessState; ps != nil {
+			status = ps.String()
+		}
+		logger.Info("window exited", "window", w.id, "background", w.background,
+			"program", w.displayTitle("process"), "status", status)
 		hadFocus := m.focused == w
 		m.remove(w)
 		if w.background {
