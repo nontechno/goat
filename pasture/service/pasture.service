@@ -1,0 +1,51 @@
+# systemd USER service for pasture, the mux server that keeps goat's programs
+# running. Full guide: SYSTEMD.md (next to this file).
+#
+# Installed by install-systemd.sh to ~/.config/systemd/user/pasture.service.
+# Manual install:
+#   install -Dm644 pasture.service ~/.config/systemd/user/pasture.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now pasture.service
+#
+# %h is your home directory. Settings (log level, socket dir): see
+# ~/.config/pasture/pasture.env (template: pasture.env).
+
+[Unit]
+Description=pasture mux server (keeps goat's programs running)
+# Refuse to start if the binary isn't installed where this unit expects it.
+ConditionFileIsExecutable=%h/.local/bin/pasture
+# Don't give up restarting after a burst of failures.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Defaults; ~/.config/pasture/pasture.env (optional, "-" = may be missing)
+# overrides them.
+Environment=PASTURE_ARGS=-log-level=info
+EnvironmentFile=-%h/.config/pasture/pasture.env
+# Foreground, log to stderr -> the journal (journalctl --user -u pasture).
+ExecStart=%h/.local/bin/pasture -log - $PASTURE_ARGS
+# Reopen logs / no-op for the journal; harmless.
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Stopping: SIGTERM goes to the server only; it hangs up its programs itself
+# (SIGHUP, then SIGKILL after 3 s) and removes its socket. Whatever is left
+# after TimeoutStopSec is killed by systemd.
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+Restart=on-failure
+RestartSec=2
+
+# No UMask= or Limit*= here on purpose: programs started through pasture
+# inherit them from this service, and they should behave like programs
+# started from your normal shell (pasture creates its socket 0600 itself).
+
+# NOTE: no sandboxing (PrivateTmp, ProtectHome, NoNewPrivileges, ...).
+# pasture runs your interactive programs (shells, editors, sudo); those
+# options would break them, and PrivateTmp would hide the socket in /tmp
+# from goat.
+
+[Install]
+WantedBy=default.target

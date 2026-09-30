@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd user agent for the pasture mux server (macOS).
+
+    cp com.nontechno.pasture.plist ~/Library/LaunchAgents/
+    # edit the pasture path below if needed
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nontechno.pasture.plist
+    launchctl bootout   gui/$(id -u)/com.nontechno.pasture      # stop
+
+  Socket: /tmp/pasture-<uid>/default (the default, same as goat uses)
+  Logs:   /tmp/pasture-launchd.log (StandardErrorPath below)
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nontechno.pasture</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/pasture</string>
+    <string>-log-level</string>
+    <string>info</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/pasture-launchd.log</string>
+</dict>
+</plist>
