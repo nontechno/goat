@@ -42,8 +42,11 @@ type Window struct {
 	in   *inputQueue
 
 	shellName    string
-	procName     string // foreground process, from /proc
-	nowrap       bool   // long lines are not wrapped (see emuWidth)
+	ident        identity // user@host shown on the frame (ident.go)
+	sshPid       int      // foreground ssh the identity was taken from
+	sshIdent     identity // identity for sshPid
+	procName     string   // foreground process, from /proc
+	nowrap       bool     // long lines are not wrapped (see emuWidth)
 	nowrapW      int
 	hscroll      int    // columns the view is scrolled right (no-wrap)
 	followCursor bool   // the view follows the cursor sideways (after typing)

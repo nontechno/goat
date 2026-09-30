@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -56,4 +57,32 @@ func foregroundDir(ptmx *os.File, cmd *exec.Cmd) string {
 		}
 	}
 	return ""
+}
+
+// processEUID is the effective user id of pid (from /proc/<pid>/status).
+func processEUID(pid int) (int, bool) {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if rest, ok := strings.CutPrefix(line, "Uid:"); ok {
+			f := strings.Fields(rest) // real, effective, saved, filesystem
+			if len(f) >= 2 {
+				if uid, err := strconv.Atoi(f[1]); err == nil {
+					return uid, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// processArgs is the command line of pid.
+func processArgs(pid int) []string {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || len(b) == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(string(b), "\x00"), "\x00")
 }

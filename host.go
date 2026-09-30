@@ -71,7 +71,11 @@ func cleanHostName(s string) string {
 // the name is shortened (keeping at least 4 columns) or left out; it never
 // covers the wrap indicator.
 func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
-	if !m.cfg.ShowHost || m.host == "" || w.background || w.frame == frameNone {
+	if !m.showIdent() || w.background || w.frame == frameNone {
+		return
+	}
+	name := m.frameLabel(w)
+	if name == "" {
 		return
 	}
 	start := w.x + 2       // └─␠host
@@ -84,10 +88,10 @@ func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
 	if maxW < 1 {
 		return
 	}
-	cs := textCells(m.host, st, maxW)
+	cs := textCells(name, st, maxW)
 	// A name cut to a few characters says nothing: show at least 4 columns
 	// (or the whole name, when it is shorter), or nothing.
-	if w := cellsWidth(cs); w == 0 || (w < 4 && w < cellsWidth(textCells(m.host, st, 1<<20))) {
+	if w := cellsWidth(cs); w == 0 || (w < 4 && w < cellsWidth(textCells(name, st, 1<<20))) {
 		return
 	}
 	y := w.y + w.h - 1

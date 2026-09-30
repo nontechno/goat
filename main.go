@@ -168,14 +168,18 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 	defer signal.Stop(winch)
 
 	m := newWM(cfg, warns, cols, rows)
-	if cfg.ShowHost {
+	if cfg.ShowHost || cfg.ShowUser {
 		home := m.home
 		if home == "" {
 			home, _ = os.UserHomeDir()
 		}
 		var source string
 		m.host, source = hostLabel(home)
-		logger.Info("host name for window frames", "name", m.host, "source", source)
+		m.user = currentUserName()
+		m.hostChecked = time.Now()
+		m.identOn = true
+		logger.Info("identity for window frames", "user", m.user, "host", m.host, "host_source", source,
+			"show_user", cfg.ShowUser, "show_host", cfg.ShowHost)
 	}
 	m.dir, _ = os.Getwd()
 	crashState = m.snapshot
@@ -238,6 +242,8 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 			handle(ev)
 		case msg := <-m.out:
 			m.handlePty(msg)
+		case msg := <-m.identOut:
+			m.handleIdent(msg)
 		case <-m.escFire:
 			m.escExpired()
 		case msg := <-copyErrs:

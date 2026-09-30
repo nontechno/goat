@@ -41,12 +41,17 @@ type drag struct {
 
 // WM owns all windows and UI state. It is used only from the event loop.
 type WM struct {
-	cfg        *Config
-	warnings   []string
-	cols, rows int
-	macOption  bool   // treat macOS Option characters as Alt+key (mac_option_keys)
-	home       string // $HOME, shown as ~ in the status bar
-	host       string // shown in window frames (show_host); "" = none
+	cfg         *Config
+	warnings    []string
+	cols, rows  int
+	macOption   bool   // treat macOS Option characters as Alt+key (mac_option_keys)
+	home        string // $HOME, shown as ~ in the status bar
+	host        string // shown in window frames (show_host); "" = none
+	user        string // goat's own user name (show_user)
+	identOn     bool   // poll window identities (show_user/show_host; set at start)
+	identOut    chan identMsg
+	userNames   map[int]string
+	hostChecked time.Time
 
 	windows []*Window // z-order, bottom first; pinned windows sit on top
 	focused *Window
@@ -151,6 +156,7 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		// megabytes piling up here (which would make Ctrl+C take effect late).
 		nextID: 1, out: make(chan ptyMsg, 16),
 		escFire: make(chan struct{}, 1), dirty: true,
+		identOut:  make(chan identMsg, 16),
 		home:      os.Getenv("HOME"),
 		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
 	}
@@ -942,6 +948,16 @@ func (m *WM) tick(now time.Time) {
 	}
 	if f := m.focused; f != nil && m.cfg.StatusShowDir && f.refreshDir() {
 		m.dirty = true
+	}
+	if m.identOn {
+		if m.refreshLocalIdent(now) {
+			m.dirty = true
+		}
+		for _, w := range m.windows {
+			if !w.background && m.refreshIdent(w) {
+				m.dirty = true
+			}
+		}
 	}
 	if m.status != "" && now.After(m.statusUntil) {
 		m.status = ""

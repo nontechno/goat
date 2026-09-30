@@ -216,6 +216,10 @@ type Config struct {
 	// The name is the first line of ~/.hostname (up to 32 characters) if
 	// that file exists and isn't blank, else the system's host name.
 	ShowHost bool `toml:"show_host"`
+	// Show the user name there too ("user@host"): the user of the window's
+	// foreground program (root after su/sudo), or the user an ssh session
+	// logs in as. Both are checked twice a second while shown.
+	ShowUser bool `toml:"show_user"`
 
 	// Where window titles come from: "process" (the foreground program's
 	// name, like float) or "terminal" (the title the program sets with
@@ -250,6 +254,7 @@ func DefaultConfig() *Config {
 		Frame:           "full",
 		ClipboardOSC52:  true,
 		ShowHost:        true,
+		ShowUser:        true,
 		Theme: ThemeConfig{
 			FocusedBorder:   idx(14),
 			UnfocusedBorder: idx(8),

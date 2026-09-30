@@ -81,8 +81,19 @@ status_show_dir = true
 # "full" and "compact"; "none" has no bottom border):  └─ myhost ──── wrap ─┘
 # The name is the first line of ~/.hostname (up to 32 characters), so you
 # can give a machine a friendlier or shorter label; without that file (or
-# if its first line is blank) it is the system's host name.
+# if its first line is blank) it is the system's host name. ~/.hostname and
+# the system name are re-read every 5 seconds, so a rename shows up by itself.
 show_host = true
+
+# Show the user name there too:  └─ alice@myhost ── wrap ─┘
+# It is the user of the window's foreground program: after "su" or
+# "sudo -i" it shows root (or whoever), and it changes back when you leave.
+# While the foreground program is ssh, the frame shows where ssh logs in:
+# the host as you typed it and the user ssh uses (from "ssh -G", which reads
+# ~/.ssh/config without connecting). Checked twice a second while shown
+# (Linux; elsewhere goat's own user and host are shown). What happens inside
+# the ssh session (su, a further ssh) can't be seen from here.
+show_user = true
 
 # Log of problems, for diagnosing them: crashes (with a stack trace and the
 # state of every window), a window's terminal emulator failing (with the
