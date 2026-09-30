@@ -46,6 +46,7 @@ type WM struct {
 	cols, rows int
 	macOption  bool   // treat macOS Option characters as Alt+key (mac_option_keys)
 	home       string // $HOME, shown as ~ in the status bar
+	host       string // shown in window frames (show_host); "" = none
 
 	windows []*Window // z-order, bottom first; pinned windows sit on top
 	focused *Window

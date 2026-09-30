@@ -30,6 +30,9 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 - Status bar: a numbered tab per window (click to focus), messages, a clock,
   and optionally the active window's directory (`status_show_dir`)
 - New windows (Alt+c) start in the active window's current directory
+- The host name on each framed window's bottom border (`show_host`, on by
+  default): the first line of `~/.hostname` (up to 32 characters) if you
+  want a custom label, else the system's host name
 - Per-window colors: Alt+b steps through background:text pairs you configure;
   the border takes the background and the cursor the text color (where the
   terminal allows setting it). Each new window starts at the next

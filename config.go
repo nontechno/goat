@@ -212,6 +212,11 @@ type Config struct {
 	// the clock (shortened from the left when it doesn't fit).
 	StatusShowDir bool `toml:"status_show_dir"`
 
+	// Show the host name on the left of each framed window's bottom border.
+	// The name is the first line of ~/.hostname (up to 32 characters) if
+	// that file exists and isn't blank, else the system's host name.
+	ShowHost bool `toml:"show_host"`
+
 	// Where window titles come from: "process" (the foreground program's
 	// name, like float) or "terminal" (the title the program sets with
 	// OSC 0/2, falling back to the process name).
@@ -244,6 +249,7 @@ func DefaultConfig() *Config {
 		TitleSource:     "process",
 		Frame:           "full",
 		ClipboardOSC52:  true,
+		ShowHost:        true,
 		Theme: ThemeConfig{
 			FocusedBorder:   idx(14),
 			UnfocusedBorder: idx(8),

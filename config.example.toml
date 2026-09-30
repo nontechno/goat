@@ -77,6 +77,13 @@ copy_command = ""
 # when it doesn't fit). New windows (Alt+c) always start in that directory.
 status_show_dir = true
 
+# Show the host name on the left of each window's bottom border (frames
+# "full" and "compact"; "none" has no bottom border):  └─ myhost ──── wrap ─┘
+# The name is the first line of ~/.hostname (up to 32 characters), so you
+# can give a machine a friendlier or shorter label; without that file (or
+# if its first line is blank) it is the system's host name.
+show_host = true
+
 # Log of problems, for diagnosing them: crashes (with a stack trace and the
 # state of every window), a window's terminal emulator failing (with the
 # output it failed on), config problems, clipboard commands failing, windows

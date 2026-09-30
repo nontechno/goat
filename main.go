@@ -168,6 +168,15 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 	defer signal.Stop(winch)
 
 	m := newWM(cfg, warns, cols, rows)
+	if cfg.ShowHost {
+		home := m.home
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		var source string
+		m.host, source = hostLabel(home)
+		logger.Info("host name for window frames", "name", m.host, "source", source)
+	}
 	m.dir, _ = os.Getwd()
 	crashState = m.snapshot
 	if err := m.startBackground(); err != nil {

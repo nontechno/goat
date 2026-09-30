@@ -164,6 +164,7 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	}
 	line(y1, '└', '─', '┘')
 	m.drawWrapIndicator(scr, w, st)
+	m.drawHost(scr, w, st)
 
 	if w.frame == frameCompact {
 		titleInLine(x0+2, w.w-6) // ╭─␠title␠───╮
