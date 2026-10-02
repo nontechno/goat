@@ -21,7 +21,7 @@ type client struct {
 	pid      int
 	welcomed bool
 	closed   bool
-	attached map[*pane]bool
+	attached map[*pane]*attachment
 
 	mu      sync.Mutex
 	cond    *sync.Cond
@@ -35,7 +35,7 @@ func (s *Server) newClient(conn net.Conn) {
 	s.nextConn++
 	c := &client{
 		id: s.nextConn, conn: conn, since: time.Now(),
-		attached: map[*pane]bool{}, flushed: make(chan struct{}),
+		attached: map[*pane]*attachment{}, flushed: make(chan struct{}),
 	}
 	c.cond = sync.NewCond(&c.mu)
 	c.log = s.log.With("client", c.id)

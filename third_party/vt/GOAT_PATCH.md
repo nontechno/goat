@@ -72,3 +72,12 @@ sequences as before, as upstream's tests expect.
 
 Worth proposing upstream (the crash fix especially). Once released there,
 drop this directory and the `replace` line.
+
+## Evicted scrollback lines (for pasture)
+
+**scrollback.go:** `Scrollback.SetEvictHandler(fn)` registers a function
+that sees each line, with its number (as counted by `Pushed`), just before
+it is dropped to make room (oldest first),
+from `Push` on a full buffer and from `SetMaxLines` shrinking it. pasture
+uses it to move history that no longer fits in memory to disk. Lines
+removed by `Clear` (ED 3) are not passed on: that history is meant to go.

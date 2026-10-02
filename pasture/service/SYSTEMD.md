@@ -22,6 +22,7 @@ Runtime paths, for user id `$(id -u)`:
 | `/tmp/pasture-<uid>/` | Socket directory, mode 0700 |
 | `/tmp/pasture-<uid>/default` | The socket goat connects to (mode 0600) |
 | `/tmp/pasture-<uid>/default.lock` | Lock file, containing the server's pid |
+| `/tmp/pasture-<uid>/default.history/` | History moved out of memory, one set of append-only files per pane (0600; deleted with the pane) |
 | `journalctl --user -u pasture` | The log |
 
 ---
@@ -235,7 +236,8 @@ For more detail (every request and its timing), set
 ### 5.1 `~/.config/pasture/pasture.env`
 
 ```bash
-PASTURE_ARGS=-log-level=info    # extra flags: -log-level=debug|info|warn|error, -S=/path/socket
+PASTURE_ARGS=-log-level=info    # extra flags: -log-level=debug|info|warn|error, -S=/path/socket,
+                                #   -history-max=64M (history on disk per pane; 0 = none), -history-dir=/path
 #PASTURE_TMPDIR=/tmp            # socket directory base (socket: $PASTURE_TMPDIR/pasture-<uid>/default)
 ```
 

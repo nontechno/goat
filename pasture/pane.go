@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -23,9 +22,9 @@ import (
 )
 
 const (
-	maxSize            = 4096 // cols/rows accepted
-	defaultHistory     = 5000
-	maxHistory         = 1000000
+	maxSize            = 1000 // cols/rows accepted
+	defaultHistory     = 2000 // history lines kept in memory (older ones go to disk)
+	maxHistory         = 100000
 	killGrace          = 3 * time.Second // SIGHUP, then SIGKILL
 	exitOutputDeadline = 500 * time.Millisecond
 )
@@ -65,6 +64,17 @@ type pane struct {
 	exited atomic.Bool
 
 	bytesIn, bytesOut int64
+
+	hist *history // history older than the in-memory scrollback (history.go)
+
+	gate *gate // pauses reading the PTY while a client is behind (flow.go)
+	// ahead holds a token per chunk read from the PTY and not yet handled
+	// by the loop: the reader can't run more than readAhead chunks ahead,
+	// so a pause takes effect promptly.
+	ahead    chan struct{}
+	pausedAt time.Time
+	pauses   int
+	dropped  int // emulator replies dropped (queue full)
 }
 
 type modeKey struct {
@@ -160,6 +170,11 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 
 	p.emu = vt.NewEmulator(sp.cols, sp.rows)
 	p.emu.SetScrollbackSize(sp.history)
+	// Lines pushed out of the in-memory scrollback go to disk.
+	p.hist = newHistory(s.histCfg, p.id, log)
+	if sb := p.emu.Scrollback(); sb != nil {
+		sb.SetEvictHandler(func(n int, line uv.Line) { p.evicted(int64(n), line) })
+	}
 	p.emu.SetLogger(vtLogger{log})
 	p.emu.SetCallbacks(vt.Callbacks{
 		Title:            func(t string) { p.title = t },
@@ -179,13 +194,15 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 	// Replies from the server's emulator (DA, DSR, ...) must always be read,
 	// or the emulator blocks; they reach the program only while no client
 	// is attached.
-	p.in = newInputQueue()
+	p.in = newInputQueue(p.id)
 	go func() {
 		buf := make([]byte, 4096)
+		warned := false
 		for {
 			n, err := p.emu.Read(buf)
-			if n > 0 && !p.muted.Load() {
-				_, _ = p.in.Write(buf[:n])
+			if n > 0 && !p.muted.Load() && !p.in.reply(buf[:n]) && !warned {
+				warned = true
+				log.Warn("program does not read its input; terminal replies dropped")
 			}
 			if err != nil {
 				return
@@ -193,6 +210,8 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 		}
 	}()
 	go p.in.drainTo(p.ptmx, log)
+	p.gate = newGate()
+	p.ahead = make(chan struct{}, readAhead)
 
 	// Read the PTY all the time, attached or not: a PTY nobody reads fills
 	// up and blocks the program.
@@ -201,9 +220,23 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 		defer close(readDone)
 		buf := make([]byte, 32*1024)
 		for {
+			if !p.gate.wait() { // paused while a client is behind (flow.go)
+				return
+			}
+			select {
+			case p.ahead <- struct{}{}:
+			case <-s.done:
+				return
+			}
 			n, err := p.ptmx.Read(buf)
 			if n > 0 {
-				s.paneEvents <- paneEvent{p: p, data: append([]byte(nil), buf[:n]...)}
+				select {
+				case s.paneEvents <- paneEvent{p: p, data: append([]byte(nil), buf[:n]...)}:
+				case <-s.done:
+					return
+				}
+			} else {
+				<-p.ahead
 			}
 			if err != nil {
 				// EIO: the other side closed (program exited); ErrClosed: we
@@ -221,9 +254,23 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 		err := cmd.Wait()
 		p.exited.Store(true)
 		status := exitStatus(err)
+		// Time spent paused by flow control doesn't count: that output
+		// is still to be read and delivered.
+		tick := time.NewTicker(exitOutputDeadline / 10)
+		defer tick.Stop()
+		for waited := time.Duration(0); waited < exitOutputDeadline; {
+			select {
+			case <-readDone:
+				waited = exitOutputDeadline
+			case <-tick.C:
+				if !p.gate.isPaused() {
+					waited += exitOutputDeadline / 10
+				}
+			}
+		}
 		select {
 		case <-readDone:
-		case <-time.After(exitOutputDeadline):
+		default:
 			log.Debug("output still open after exit (a child keeps the pty); not waiting")
 		}
 		s.paneEvents <- paneEvent{p: p, exited: true, status: status}
@@ -264,6 +311,7 @@ func (s *Server) feed(p *pane, data []byte) {
 		}
 	}()
 	_, _ = p.emu.Write(data)
+	p.syncHistory()
 }
 
 func excerpt(b []byte, n int) []byte {
@@ -293,6 +341,7 @@ func (p *pane) close(log interface{ Info(string, ...any) }) {
 	}
 	p.closed = true
 	p.in.Close()
+	p.gate.close()
 	// End the reply goroutine by closing the emulator's reply pipe (not
 	// emu.Close, whose flag is read without synchronization).
 	if pw, ok := p.emu.InputPipe().(*io.PipeWriter); ok {
@@ -318,8 +367,12 @@ func (p *pane) info() PaneInfo {
 		ID: p.id, PID: p.pid, Argv: p.argv, Dir: p.dir, Title: p.title,
 		Cols: p.cols, Rows: p.rows, Attached: len(p.clients),
 		Dead: p.dead, Status: p.status, Created: p.created.Unix(),
-		Command: filepath.Base(p.argv[0]),
+		HistoryDiskBytes: p.hist.total,
+		Paused:           p.gate.isPaused(),
+		InputQueued:      p.in.queued(),
+		Command:          filepath.Base(p.argv[0]),
 	}
+	pi.HistoryOldest, pi.HistoryEnd = p.historyBounds()
 	if !p.closed {
 		fg := foregroundPgrp(p.ptmx)
 		if fg <= 0 {
@@ -337,23 +390,29 @@ func (p *pane) info() PaneInfo {
 }
 
 // snapshot returns escape sequences that recreate the pane in a fresh
-// terminal emulator of p.cols×p.rows: the last `history` scrollback lines
-// (-1 = all), the screen, the modes the program set, the title, and the
-// cursor.
+// terminal emulator of p.cols×p.rows: the last `history` history lines
+// (-1 = as many as fit in snapshotHistoryBytes), the screen, the modes the
+// program set, the title, and the cursor. first is the number of the first
+// history line included (older ones can be fetched with OpHistory).
 //
 // Limits: while a full-screen program uses the alternate screen, the main
 // screen underneath it is not included (the emulator doesn't expose it),
 // and the scroll region is not restored (full-screen programs set it again
 // on their next redraw).
-func (p *pane) snapshot(history int) []byte {
+func (p *pane) snapshot(history int) (snap []byte, first int64, err error) {
 	var b strings.Builder
 	b.WriteString("\x1b[0m\x1b[H\x1b[2J")
-	sb := p.emu.ScrollbackLen()
-	if history < 0 || history > sb {
-		history = sb
+	oldest, end := p.historyBounds()
+	count := end - oldest
+	if history >= 0 && int64(history) < count {
+		count = int64(history)
 	}
-	for i := sb - history; i < sb; i++ {
-		b.WriteString(renderLine(p.emu.Scrollback().Line(i)))
+	first, lines, err := p.historyPage(end, count, snapshotHistoryBytes)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, l := range lines {
+		b.WriteString(l)
 		b.WriteString("\x1b[0m\r\n")
 	}
 	w, h := p.emu.Width(), p.emu.Height()
@@ -415,7 +474,7 @@ func (p *pane) snapshot(history int) []byte {
 	if !p.cursorOn {
 		b.WriteString("\x1b[?25l")
 	}
-	return []byte(b.String())
+	return []byte(b.String()), first, nil
 }
 
 func renderLine(l uv.Line) string {
@@ -444,61 +503,6 @@ type vtLogger struct {
 
 func (l vtLogger) Printf(format string, v ...any) {
 	l.log.Debug("emulator: " + fmt.Sprintf(format, v...))
-}
-
-// inputQueue is an unbounded, non-blocking byte queue drained into the
-// PTY by its own goroutine, so a program that doesn't read its input never
-// blocks the server.
-type inputQueue struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	buf    []byte
-	closed bool
-}
-
-func newInputQueue() *inputQueue {
-	q := &inputQueue{}
-	q.cond = sync.NewCond(&q.mu)
-	return q
-}
-
-func (q *inputQueue) Write(p []byte) (int, error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if q.closed {
-		return 0, io.ErrClosedPipe
-	}
-	q.buf = append(q.buf, p...)
-	q.cond.Signal()
-	return len(p), nil
-}
-
-func (q *inputQueue) Close() {
-	q.mu.Lock()
-	q.closed = true
-	q.buf = nil
-	q.cond.Broadcast()
-	q.mu.Unlock()
-}
-
-func (q *inputQueue) drainTo(dst io.Writer, log interface{ Debug(string, ...any) }) {
-	for {
-		q.mu.Lock()
-		for len(q.buf) == 0 && !q.closed {
-			q.cond.Wait()
-		}
-		if q.closed {
-			q.mu.Unlock()
-			return
-		}
-		data := q.buf
-		q.buf = nil
-		q.mu.Unlock()
-		if _, err := dst.Write(data); err != nil {
-			log.Debug("pty write stopped", "err", err)
-			return
-		}
-	}
 }
 
 // lookPath finds an executable like a shell would, using the PATH in env
@@ -540,4 +544,114 @@ func isExecutable(p string) error {
 		return errors.New("not executable")
 	}
 	return nil
+}
+
+const (
+	snapshotHistoryBytes = 8 << 20 // history included in an attach snapshot
+	historyPageBytes     = 4 << 20 // one OpHistory page
+	historyPageLines     = 10000   // most lines in one OpHistory page
+	historyChunk         = 512     // lines read at a time when paging backwards
+)
+
+// evicted moves a line pushed out of the in-memory scrollback to disk.
+// n is its number; a jump (the scrollback was cleared, then filled again
+// within one write) discards the older history first.
+func (p *pane) evicted(n int64, line uv.Line) {
+	switch {
+	case n > p.hist.end:
+		p.hist.discard(n)
+	case n < p.hist.end:
+		return // already stored (can't happen; be safe)
+	}
+	p.hist.add(renderLine(line))
+}
+
+// syncHistory notices a cleared scrollback (e.g. "clear", ED 3): the
+// history before the lines still in memory is then discarded too, as a
+// terminal would.
+func (p *pane) syncHistory() {
+	sb := p.emu.Scrollback()
+	if sb == nil {
+		return
+	}
+	memFirst := int64(sb.Pushed() - sb.Len())
+	if memFirst > p.hist.end {
+		p.hist.discard(memFirst)
+	}
+}
+
+// historyBounds is the range of history lines that can be read: from
+// oldest (on disk, or in memory) up to end (the next line to scroll off;
+// the screen starts there).
+func (p *pane) historyBounds() (oldest, end int64) {
+	sb := p.emu.Scrollback()
+	if sb == nil {
+		return 0, 0
+	}
+	end = int64(sb.Pushed())
+	memFirst := end - int64(sb.Len())
+	oldest = memFirst
+	if p.hist.end == memFirst && p.hist.base < memFirst {
+		oldest = p.hist.base
+	}
+	return oldest, end
+}
+
+// historyRange returns lines [from, to), all within historyBounds, from
+// disk and/or memory.
+func (p *pane) historyRange(from, to int64) ([]string, error) {
+	sb := p.emu.Scrollback()
+	if sb == nil || from >= to {
+		return nil, nil
+	}
+	memFirst := int64(sb.Pushed() - sb.Len())
+	var out []string
+	if from < memFirst {
+		disk, err := p.hist.read(from, min(to, memFirst), int(^uint(0)>>1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(disk)) != min(to, memFirst)-from {
+			return nil, fmt.Errorf("history lines %d-%d: got %d from disk", from, min(to, memFirst), len(disk))
+		}
+		out = disk
+		from = memFirst
+	}
+	for n := from; n < to; n++ {
+		out = append(out, renderLine(sb.Line(int(n-memFirst))))
+	}
+	return out, nil
+}
+
+// historyPage returns up to count lines just before line `before` (the
+// newest ones first in priority), at most maxBytes of them (but at least
+// one line if there is any). first is the number of lines[0].
+func (p *pane) historyPage(before, count int64, maxBytes int) (first int64, lines []string, err error) {
+	oldest, end := p.historyBounds()
+	before = min(max(before, oldest), end)
+	from := max(oldest, before-count)
+	used := 0
+	cur := before
+	for cur > from {
+		lo := max(from, cur-historyChunk)
+		chunk, err := p.historyRange(lo, cur)
+		if err != nil {
+			return 0, nil, err
+		}
+		i := len(chunk)
+		for i > 0 {
+			l := len(chunk[i-1]) + 1
+			if used+l > maxBytes && (len(lines) > 0 || i < len(chunk)) {
+				break
+			}
+			used += l
+			i--
+		}
+		lines = append(chunk[i:], lines...)
+		cur = lo + int64(i)
+		if i > 0 {
+			break // budget reached
+		}
+	}
+	return cur, lines, nil
 }

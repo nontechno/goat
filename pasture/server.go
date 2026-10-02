@@ -15,6 +15,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -40,6 +41,7 @@ type Server struct {
 	nextConn int
 
 	conns      chan net.Conn
+	histCfg    HistoryConfig
 	paneEvents chan paneEvent
 	clientMsgs chan clientMsg
 	gone       chan *client
@@ -50,8 +52,9 @@ type Server struct {
 
 // Config configures a Server.
 type Config struct {
-	Socket string       // socket path (see DefaultSocket)
-	Logger *slog.Logger // nil = discard
+	Socket  string        // socket path (see DefaultSocket)
+	Logger  *slog.Logger  // nil = discard
+	History HistoryConfig // history on disk (zero = memory only)
 }
 
 // NewServer takes the socket's lock (one server per socket) and starts
@@ -107,6 +110,18 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s.ln, s.lock = ln, lock
+	s.histCfg = cfg.History
+	if s.histCfg.Dir != "" && s.histCfg.MaxBytes > 0 {
+		if err := prepareHistoryDir(s.histCfg.Dir, log); err != nil {
+			log.Warn("history on disk disabled", "dir", s.histCfg.Dir, "err", err)
+			s.histCfg.Dir = ""
+		}
+	}
+	if s.histCfg.Dir != "" && s.histCfg.MaxBytes > 0 {
+		log.Info("history on disk", "dir", s.histCfg.Dir, "max_bytes_per_pane", s.histCfg.MaxBytes)
+	} else {
+		log.Info("history on disk off: history is limited to what each pane keeps in memory")
+	}
 	return s, nil
 }
 
@@ -179,6 +194,7 @@ func (s *Server) shutdown(reason string) {
 	_ = s.ln.Close() // also unlinks the socket
 	for _, p := range s.panes {
 		p.close(s.log)
+		p.hist.close()
 	}
 	for c := range s.clients {
 		c.closeAfterFlush()
@@ -222,15 +238,23 @@ func (s *Server) accept() {
 
 func (s *Server) handlePaneEvent(ev paneEvent) {
 	p := ev.p
+	if !ev.exited {
+		<-p.ahead // the reader may read on
+	}
 	if s.panes[p.id] != p {
 		return // already forgotten
 	}
 	if !ev.exited {
 		p.bytesOut += int64(len(ev.data))
 		s.feed(p, ev.data)
+		frame := encodePaneData(msgOutput, p.id, ev.data)
 		for c := range p.clients {
-			c.send(encodePaneData(msgOutput, p.id, ev.data))
+			c.send(frame)
+			if a := c.attached[p]; a != nil {
+				a.unacked += int64(len(ev.data))
+			}
 		}
+		s.updateFlow(p)
 		return
 	}
 	p.status = ev.status
@@ -242,12 +266,12 @@ func (s *Server) handlePaneEvent(ev paneEvent) {
 			c.send(encodeJSON(msgExit, ExitEvent{Pane: p.id, Status: ev.status}))
 			delete(c.attached, p)
 		}
-		delete(s.panes, p.id)
+		s.forget(p)
 		log.Info("pane exited", "notified", len(p.clients))
 		return
 	}
 	if p.killed {
-		delete(s.panes, p.id)
+		s.forget(p)
 		log.Info("killed pane exited")
 		return
 	}
@@ -255,6 +279,21 @@ func (s *Server) handlePaneEvent(ev paneEvent) {
 	// attaches (or kills it).
 	p.dead = true
 	log.Info("pane exited while detached; kept until the next attach")
+}
+
+// maxSnapshotFrame is the largest attach response; a variable for tests.
+var maxSnapshotFrame atomic.Int64
+
+func init() { maxSnapshotFrame.Store(maxFrame) }
+
+// snapshotFits reports whether a snapshot of n bytes fits in a response
+// frame (base64 in JSON, plus room for the other fields).
+func snapshotFits(n int) bool { return (n+2)/3*4+4096 <= int(maxSnapshotFrame.Load()) }
+
+// forget removes a pane for good, with its history files.
+func (s *Server) forget(p *pane) {
+	delete(s.panes, p.id)
+	p.hist.close()
 }
 
 func (s *Server) pane(id int) (*pane, error) {
@@ -267,7 +306,7 @@ func (s *Server) pane(id int) (*pane, error) {
 
 func (s *Server) attach(c *client, p *pane) {
 	p.clients[c] = true
-	c.attached[p] = true
+	c.attached[p] = &attachment{}
 	p.muted.Store(true)
 }
 
@@ -277,6 +316,7 @@ func (s *Server) detach(c *client, p *pane) {
 	if len(p.clients) == 0 {
 		p.muted.Store(false)
 	}
+	s.updateFlow(p)
 }
 
 // Clients.
@@ -342,17 +382,48 @@ func (s *Server) handleClientMsg(m clientMsg) {
 			return
 		}
 		p := s.panes[id]
+		var a *attachment
+		if p != nil {
+			a = c.attached[p]
+		}
 		switch {
 		case p == nil:
 			c.log.Debug("input for unknown pane dropped", "pane", id, "bytes", len(data))
-		case !p.clients[c]:
+		case a == nil:
 			c.log.Warn("input for a pane this client is not attached to dropped", "pane", id, "bytes", len(data))
+		case a.inQueued.Load()+int64(len(data)) > inputWindow+inputSlack:
+			s.dropClient(c, fmt.Sprintf("input beyond the flow-control window (pane %d)", id))
+			return
 		case p.closed:
 			// exited; its exit event is on the way
 		default:
 			p.bytesIn += int64(len(data))
-			_, _ = p.in.Write(data)
+			a.inQueued.Add(int64(len(data)))
+			p.in.add(c, a, data)
+			return
 		}
+		// Dropped: acknowledge it anyway, so the client's window isn't lost.
+		c.send(encodeCount(msgInputAck, id, len(data)))
+	case msgAck:
+		id, n, err := decodeCount(m.payload)
+		if err != nil {
+			s.dropClient(c, err.Error())
+			return
+		}
+		p := s.panes[id]
+		if p == nil {
+			return
+		}
+		a := c.attached[p]
+		if a == nil {
+			return // detached meanwhile
+		}
+		a.unacked -= int64(n)
+		if a.unacked < 0 {
+			c.log.Warn("client acknowledged more output than it was sent", "pane", id, "excess", -a.unacked)
+			a.unacked = 0
+		}
+		s.updateFlow(p)
 	default:
 		s.dropClient(c, fmt.Sprintf("unexpected frame type %d", m.typ))
 	}
@@ -387,13 +458,31 @@ func (s *Server) handleRequest(c *client, r *Request) (Response, func()) {
 		if p.clients[c] {
 			return fail(fmt.Errorf("already attached to pane %d", p.id))
 		}
-		snap := p.snapshot(r.History)
-		resp := Response{Pane: p.id, PID: p.pid, Cols: p.cols, Rows: p.rows, Snapshot: snap}
+		snap, first, err := p.snapshot(r.History)
+		if err != nil {
+			return fail(fmt.Errorf("snapshot of pane %d: %w", p.id, err))
+		}
+		// The response carries the snapshot base64-encoded in JSON: it must
+		// fit a frame, or the client would drop the connection. If the
+		// history makes it too big, leave the history out (it can be paged);
+		// if the screen alone is too big, refuse, and keep the pane as is.
+		if !snapshotFits(len(snap)) {
+			c.log.Warn("snapshot too large; sending it without history", "pane", p.id, "bytes", len(snap))
+			if snap, first, err = p.snapshot(0); err != nil {
+				return fail(fmt.Errorf("snapshot of pane %d: %w", p.id, err))
+			}
+		}
+		if !snapshotFits(len(snap)) {
+			return fail(fmt.Errorf("snapshot of pane %d too large (%d bytes, even without history)", p.id, len(snap)))
+		}
+		oldest, end := p.historyBounds()
+		resp := Response{Pane: p.id, PID: p.pid, Cols: p.cols, Rows: p.rows, Snapshot: snap,
+			First: first, Oldest: oldest, End: end}
 		c.log.Info("pane attached", "pane", p.id, "snapshot_bytes", len(snap), "dead", p.dead,
 			"clients", len(p.clients)+1)
 		if p.dead {
 			// It ended while nobody watched: show it, report the exit, forget it.
-			delete(s.panes, p.id)
+			s.forget(p)
 			status := p.status
 			return resp, func() {
 				c.send(encodeJSON(msgExit, ExitEvent{Pane: p.id, Status: status}))
@@ -461,13 +550,37 @@ func (s *Server) handleRequest(c *client, r *Request) (Response, func()) {
 		}
 		c.log.Info("pane killed", "pane", p.id, "pid", p.pid, "dead", p.dead)
 		if p.dead {
-			delete(s.panes, p.id)
+			s.forget(p)
 			return Response{Pane: p.id}, nil
 		}
 		// Hang it up; attached clients get the exit event once it's reaped.
 		p.killed = true
 		p.close(s.log)
 		return Response{Pane: p.id}, nil
+
+	case OpHistory:
+		p, err := s.pane(r.Pane)
+		if err != nil {
+			return fail(err)
+		}
+		oldest, end := p.historyBounds()
+		before := r.Before
+		if before < 0 || before > end {
+			before = end
+		}
+		count := int64(r.Count)
+		if count <= 0 {
+			count = 1000
+		}
+		count = min(count, historyPageLines)
+		first, lines, err := p.historyPage(before, count, historyPageBytes)
+		if err != nil {
+			c.log.Error("reading history failed", "pane", p.id, "err", err)
+			return fail(fmt.Errorf("reading history of pane %d: %w", p.id, err))
+		}
+		c.log.Debug("history page", "pane", p.id, "before", before, "first", first, "lines", len(lines),
+			"oldest", oldest, "end", end)
+		return Response{Pane: p.id, First: first, Lines: lines, Oldest: oldest, End: end}, nil
 
 	case OpList:
 		ids := make([]int, 0, len(s.panes))

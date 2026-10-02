@@ -17,6 +17,10 @@ import (
 // ErrClosed is returned once the connection to the server is gone.
 var ErrClosed = errors.New("pasture: connection closed")
 
+// ErrOverflow ends a connection whose server sent far more output than flow
+// control allows (a broken or incompatible server).
+var ErrOverflow = errors.New("pasture: server ignored flow control (output overflow)")
+
 // Client is a connection to a server. It is safe for concurrent use.
 type Client struct {
 	conn net.Conn
@@ -149,8 +153,20 @@ func (c *Client) readLoop() {
 			c.mu.Lock()
 			p := c.panes[id]
 			c.mu.Unlock()
+			if p != nil && !p.push(data) {
+				err = ErrOverflow
+				return
+			}
+		case msgInputAck:
+			var id, n int
+			if id, n, err = decodeCount(payload); err != nil {
+				return
+			}
+			c.mu.Lock()
+			p := c.panes[id]
+			c.mu.Unlock()
 			if p != nil {
-				p.push(data)
+				p.inputAcked(n)
 			}
 		case msgExit:
 			var ev ExitEvent
@@ -212,7 +228,7 @@ type SpawnOptions struct {
 	Env        []string // the complete environment; include TERM
 	Dir        string   // absolute working directory ("" = /)
 	Cols, Rows int
-	History    int // scrollback lines the server keeps (0 = 5000, <0 = none)
+	History    int // history lines the server keeps in memory (0 = 2000, <0 = no history); older lines go to disk when the server has history on disk
 }
 
 // Spawn starts a program on the server. The client is attached to it:
@@ -234,19 +250,48 @@ func (c *Client) Spawn(o SpawnOptions) (*Pane, error) {
 // Attach attaches to a running pane. The returned Pane's Snapshot, fed to
 // a new terminal emulator of Cols×Rows, recreates the screen; output
 // follows through Read. history is how many scrollback lines to include
-// (-1 = all). A pane that exited while nobody was attached returns its
-// last screen and then ends (Wait gives its status).
+// (-1 = as many as fit, about 8 MB). A pane that exited while nobody was
+// attached returns its last screen and then ends (Wait gives its status).
+// Older history than the snapshot holds is available through History.
 func (c *Client) Attach(id, history int) (*Pane, error) {
 	var p *Pane
 	_, err := c.do(Request{Op: OpAttach, Pane: id, History: history}, func(r Response) {
 		p = newPane(c, r)
 		p.Cols, p.Rows, p.Snapshot = r.Cols, r.Rows, r.Snapshot
+		p.HistoryFirst, p.HistoryOldest = r.First, r.Oldest
 		c.panes[p.ID] = p
 	})
 	if err != nil {
 		return nil, err
 	}
 	return p, nil
+}
+
+// HistoryPage is one page of a pane's history.
+type HistoryPage struct {
+	First  int64    // number of Lines[0]
+	Lines  []string // oldest first; text with colors as escape sequences, no newlines
+	Oldest int64    // the oldest line the server still has
+	End    int64    // number of the next line to scroll off (the screen comes after)
+}
+
+// HistoryEnd, as History's before, means "up to the newest line".
+const HistoryEnd int64 = -1
+
+// More reports whether there are older lines than this page.
+func (h HistoryPage) More() bool { return h.First > h.Oldest }
+
+// History returns up to count history lines just before line `before`
+// (HistoryEnd = the newest). Line numbers never change, so paging is stable
+// while the program keeps writing: to go back further, call again with
+// before = page.First while page.More(). A page is also limited to about
+// 4 MB, and keeps its newest lines when cut.
+func (c *Client) History(pane int, before int64, count int) (HistoryPage, error) {
+	r, err := c.do(Request{Op: OpHistory, Pane: pane, Before: before, Count: count}, nil)
+	if err != nil {
+		return HistoryPage{}, err
+	}
+	return HistoryPage{First: r.First, Lines: r.Lines, Oldest: r.Oldest, End: r.End}, nil
 }
 
 // List describes all panes on the server.
@@ -269,27 +314,45 @@ type Pane struct {
 	Cols     int    // size at spawn / attach
 	Rows     int    //
 	Snapshot []byte // attach only: recreates the screen (see Attach)
+	// Attach only: number of the first history line in Snapshot, and of the
+	// oldest one the server still has. Fetch the ones in between with
+	// Client.History(ID, HistoryFirst, n).
+	HistoryFirst  int64
+	HistoryOldest int64
 
-	c    *Client
-	mu   sync.Mutex
-	cond *sync.Cond
-	buf  []byte
-	done bool  // no more output
-	code int   // exit status
-	err  error // nil = the program exited normally
-	wait chan struct{}
+	c        *Client
+	mu       sync.Mutex
+	cond     *sync.Cond // output arrived or the pane ended
+	wcond    *sync.Cond // input acknowledged or the pane ended
+	buf      []byte
+	consumed int   // output handed to Read, not yet acknowledged
+	inFlight int   // input sent, not yet acknowledged
+	done     bool  // no more output
+	code     int   // exit status
+	err      error // nil = the program exited normally
+	wait     chan struct{}
 }
 
 func newPane(c *Client, r Response) *Pane {
 	p := &Pane{ID: r.Pane, PID: r.PID, c: c, wait: make(chan struct{})}
 	p.cond = sync.NewCond(&p.mu)
+	p.wcond = sync.NewCond(&p.mu)
 	return p
 }
 
-func (p *Pane) push(data []byte) {
+// push buffers output; false if the server sent far beyond the window.
+func (p *Pane) push(data []byte) bool {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.buf = append(p.buf, data...)
 	p.cond.Signal()
+	return len(p.buf) <= 4*outputWindow
+}
+
+func (p *Pane) inputAcked(n int) {
+	p.mu.Lock()
+	p.inFlight = max(p.inFlight-n, 0)
+	p.wcond.Broadcast()
 	p.mu.Unlock()
 }
 
@@ -301,37 +364,71 @@ func (p *Pane) finish(code int, err error) {
 	}
 	p.done, p.code, p.err = true, code, err
 	p.cond.Broadcast()
+	p.wcond.Broadcast()
 	close(p.wait)
 }
 
 // Read returns output. After the program exits and its output is read, it
 // returns io.EOF; if the connection is lost (or the pane is detached), the
 // connection error or ErrClosed.
+//
+// Reading is what lets the program write more: the server holds a pane's
+// output back once about 1 MiB of it is unread (see flow.go), so read
+// continuously while attached.
 func (p *Pane) Read(b []byte) (int, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	for len(p.buf) == 0 && !p.done {
 		p.cond.Wait()
 	}
-	if len(p.buf) > 0 {
-		n := copy(b, p.buf)
-		p.buf = p.buf[n:]
-		if len(p.buf) == 0 {
-			p.buf = nil
+	if len(p.buf) == 0 {
+		err := p.err
+		p.mu.Unlock()
+		if err != nil {
+			return 0, err
 		}
-		return n, nil
+		return 0, io.EOF
 	}
-	if p.err != nil {
-		return 0, p.err
+	n := copy(b, p.buf)
+	p.buf = p.buf[n:]
+	if len(p.buf) == 0 {
+		p.buf = nil
 	}
-	return 0, io.EOF
+	// Acknowledge in steps, and whenever the buffer is drained.
+	p.consumed += n
+	ack := 0
+	if p.consumed >= clientAckStep || len(p.buf) == 0 {
+		ack, p.consumed = p.consumed, 0
+	}
+	done := p.done
+	p.mu.Unlock()
+	if ack > 0 && !done {
+		_ = p.c.write(msgAck, encodeCount(msgAck, p.ID, ack)[5:])
+	}
+	return n, nil
 }
 
-// Write sends input to the program.
+// Write sends input to the program. It waits while about 1 MiB of this
+// pane's input is not yet written to the program (one that doesn't read its
+// input makes Write wait, as a full PTY would). It fails once the pane has
+// ended or the connection is lost.
 func (p *Pane) Write(b []byte) (int, error) {
 	n := 0
 	for len(b) > 0 {
 		chunk := b[:min(len(b), maxInputChunk)]
+		p.mu.Lock()
+		for !p.done && p.inFlight > 0 && p.inFlight+len(chunk) > inputWindow {
+			p.wcond.Wait()
+		}
+		if p.done {
+			err := p.err
+			p.mu.Unlock()
+			if err == nil {
+				err = io.ErrClosedPipe
+			}
+			return n, err
+		}
+		p.inFlight += len(chunk)
+		p.mu.Unlock()
 		if err := p.c.write(msgInput, encodePaneData(msgInput, p.ID, chunk)[5:]); err != nil {
 			return n, err
 		}

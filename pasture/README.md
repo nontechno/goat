@@ -25,6 +25,8 @@ Flags:
 | `-log-level level` | `debug`, `info` (default), `warn` or `error` |
 | `-d` | daemonize |
 | `-version` | print the protocol version |
+| `-history-max size` | history kept on disk per pane (`K`/`M`/`G`; default `64M`; `0` = none) |
+| `-history-dir dir` | where that history goes (default: `<socket>.history`) |
 
 The default socket is `/tmp/pasture-<uid>/default`, or
 `$PASTURE_TMPDIR/pasture-<uid>/default`. `$TMPDIR` is not used, because it
@@ -92,8 +94,10 @@ p, err := c.Spawn(pasture.SpawnOptions{
     Argv: []string{"/bin/bash", "-l"}, Env: env, Dir: dir, Cols: w, Rows: h,
 })
 // p behaves like the PTY master:
-go io.Copy(emu, p)        // output -> goat's vt emulator (io.EOF when it exits)
-p.Write(keys)             // input, including the emulator's replies
+go io.Copy(emu, p)        // output -> goat's vt emulator (io.EOF when it exits);
+                          // keep reading: unread output holds the program back
+go p.Write(keys)          // input, including the emulator's replies; Write
+                          // waits while the program doesn't read its input
 p.Resize(w, h)
 code, err := p.Wait()     // exit status
 
@@ -103,8 +107,18 @@ code, err := p.Wait()     // exit status
 panes, _ := c.List()      // id, pid, argv, cwd, command, title, size, dead/status
 p, _ := c.Attach(panes[0].ID, -1)
 emu := vt.NewEmulator(p.Cols, p.Rows)
-emu.Write(p.Snapshot)     // screen, scrollback, modes, title, cursor
+emu.Write(p.Snapshot)     // screen, recent history, modes, title, cursor
 p.Resize(w, h)            // then carry on as above
+
+// Older history, page by page (newest first):
+before := p.HistoryFirst  // the snapshot holds lines from here on
+for {
+    page, err := c.History(p.ID, before, 500)
+    if err != nil || len(page.Lines) == 0 { break }
+    show(page.First, page.Lines) // lines page.First.. page.First+len-1, oldest first
+    if !page.More() { break }
+    before = page.First
+}
 ```
 
 `List` also gives each pane's current directory and foreground command
@@ -124,20 +138,52 @@ directories.
 - **Spawn.** Each program gets its own session with the PTY as its
   controlling terminal. The size is set before it starts, and argv, env and
   dir are exactly what the client sent (dir must be absolute).
-- **Output is always read**, attached or not, so programs never block on a
-  full PTY. Output goes to a terminal emulator per pane (scrollback
-  configurable, default 5000 lines) and to the attached clients.
+- **Output** goes to a terminal emulator per pane and to the attached
+  clients. With nobody attached it is always read, so a program never
+  blocks on a full PTY.
+- **Flow control.** Clients acknowledge output as `Pane.Read` returns it.
+  While an attached client has 1 MiB or more of a pane's output unread,
+  the server stops reading that pane: the program waits, as it would on a
+  slow terminal, and nothing is lost. A client that stops reading
+  therefore slows the pane for every client attached to it; detaching it
+  (or its disconnect) lets the pane run again. `List` reports `paused`.
+- **History.** Every line that scrolls off a pane's screen gets a number
+  (from 0) that never changes. The newest lines (`SpawnOptions.History`,
+  default 2000) stay in memory. Older ones are moved to append-only files,
+  `<socket>.history/<pane>-<n>.log`, so memory use stays small however long
+  the history gets. Each line is stored as text with its colors as escape
+  sequences.
+  - **Limit:** at `-history-max` per pane (64 MB by default), the oldest
+    files are deleted.
+  - **Clearing:** a clear of the scrollback (`clear`, ED 3) discards the
+    history, on disk too, as a terminal would.
+  - **Cleanup:** the files are deleted with the pane, and leftovers from a
+    crashed server are deleted at start.
+  - **Snapshot:** an attach snapshot carries recent history, up to about
+    8 MB. If a snapshot would still be too large for one frame, it is sent
+    without history (which can then be paged).
+  - **Paging:** `History(pane, before, count)` pages back through the rest,
+    up to 10,000 lines or 4 MB per page. Paging is stable while the program
+    keeps writing, because line numbers don't shift.
 - **Terminal queries** (device attributes, cursor position, ...) are answered
   by the server only while no client is attached. While one is attached,
   the client's emulator answers, so a program never gets two answers.
+- **Sizes.** Panes are at most 1000×1000 cells; memory history is at most
+  100,000 lines per pane.
 - **Input** is accepted only from clients attached to that pane. It goes
   through a queue, so a program that doesn't read never blocks the server.
+  The queue is bounded: each client may have 1 MiB of a pane's input
+  unwritten, and `Pane.Write` waits for the server's acknowledgements
+  beyond that. A client that sends past the limit is disconnected. If
+  writing to the program fails, its later input is dropped (and logged).
+  `List` reports `input_queued`.
 - **Exit.** Attached clients get all remaining output, then an exit event
   with the status (128+n for signal n), and the pane is removed. If nobody
   was attached, the pane is kept, marked dead, and the next attach receives
   its last screen and then its exit.
-- **Slow clients.** A client that falls 64 MB behind is disconnected rather
-  than let memory grow.
+- **Slow clients.** Apart from flow control, a client whose connection
+  falls 64 MB behind (responses included) is disconnected rather than let
+  memory grow.
 - **Failures are contained.** A panic while handling a message or in a pane's
   emulator is logged with a stack trace, and the server keeps running.
   Malformed frames close only that connection.
@@ -152,8 +198,8 @@ The log is text key=value (`log/slog`).
   signals, kills, exits (status, run time, bytes in and out).
 - **warn:** refused connections, protocol errors, requests that failed.
 - **error:** failures and panics.
-- **debug:** every request with its duration, resizes, and sequences the
-  emulator doesn't handle.
+- **debug:** every request with its duration, resizes, output paused and
+  resumed by flow control, and sequences the emulator doesn't handle.
 
 ## Limits
 

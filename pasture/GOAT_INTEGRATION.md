@@ -30,8 +30,15 @@ Read these files first:
   Client calls (`Spawn`, `Attach`, `Resize`, `List`, `Kill`, `Detach`) block
   until the server answers and have no timeout. Run them from goroutines and
   deliver results back through channels, as `ptyMsg` does. `Pane.Write`
-  doesn't wait for an answer and is fine to call directly, but it takes the
-  connection's write lock.
+  can block too: it waits while 1 MiB of the pane's input is not yet read
+  by the program (flow control, protocol v3). Call it only from the
+  goroutine that drains `win.in`, never from the loop.
+- `Pane.Read` must be called continuously while attached. Unread output is
+  not buffered without limit: once about 1 MiB is unread, the server stops
+  reading the program's PTY, for every client attached to that pane. The
+  reader goroutine that forwards to `ptyMsg` already does this; don't make
+  it wait on the loop for long. Acknowledgements are sent by `Read`
+  automatically.
 - Unix only, like goat.
 - Follow the repo's style. Changes to vendored code are marked `GOAT PATCH`,
   and tests sit next to the code they cover.
@@ -45,22 +52,30 @@ c.Close()                                      // disconnect; programs keep runn
 <-c.Done(); c.Err()                            // connection ended, and why
 
 p, err := c.Spawn(pasture.SpawnOptions{
-    Argv: argv,        // e.g. strings.Fields(shell); argv[0] looked up in the SERVER's PATH
+    Argv: argv,        // e.g. strings.Fields(shell); argv[0] looked up in the PATH from Env
     Env:  env,         // complete environment, KEY=VALUE, must include TERM
     Dir:  dir,         // ABSOLUTE, or "" for "/"
     Cols: cw, Rows: ch,
-    History: n,        // server-side scrollback lines (0 = 5000, <0 = none)
+    History: n,        // history lines kept in the server's memory (0 = 2000, <0 = no history);
+                       // older lines go to disk on the server (pasture -history-max)
 })                     // the client is attached to the new pane
 
 infos, err := c.List()     // []PaneInfo: ID, PID, Argv, Dir, Cwd, Command, Title,
-                           //   Cols, Rows, Attached, Dead, Status, Created
-p, err := c.Attach(id, -1) // -1 = all scrollback; p.Snapshot, p.Cols, p.Rows
+                           //   Cols, Rows, Attached, Dead, Status, Created,
+                           //   HistoryOldest, HistoryEnd, HistoryDiskBytes,
+                           //   Paused (output held back), InputQueued (bytes the program hasn't read)
+p, err := c.Attach(id, n)  // snapshot with the last n history lines (-1 = as many as fit, ~8 MB);
+                           //   p.Snapshot, p.Cols, p.Rows, p.HistoryFirst, p.HistoryOldest
+page, err := c.History(id, before, count)
+                           // up to count lines just before line `before` (pasture.HistoryEnd = newest),
+                           //   oldest first: page.First, page.Lines, page.Oldest, page.End;
+                           //   next page: before = page.First, while page.More()
 err = c.Kill(id)           // hang up any pane
 
 // *pasture.Pane (p.ID, p.PID) behaves like the PTY master:
 n, err := p.Read(buf)  // output; io.EOF after the program exits and output is drained;
                        // pasture.ErrClosed (or the connection error) after Detach or connection loss
-p.Write(b)             // input (keys, pastes, and the emulator's replies)
+p.Write(b)             // input (keys, pastes, and the emulator's replies); may block (flow control)
 p.Resize(cols, rows)   // TIOCSWINSZ on the server; the program gets SIGWINCH
 p.Signal(sig)          // to the foreground process group
 p.Kill()               // SIGHUP to the process group, SIGKILL after 3s; exit follows
@@ -71,7 +86,11 @@ code, err := p.Wait()  // exit status (128+n for signal n); err != nil = not an 
 
 Server guarantees that goat can rely on:
 
-- All output is delivered before the exit.
+- All output is delivered before the exit, and none is dropped: a client
+  that reads slowly slows the program down instead (flow control).
+- If an attach snapshot with the requested history would be too large for
+  one message, it comes without history (`p.HistoryFirst` is then the end);
+  page the history with `History` instead.
 - Input is accepted only from a client attached to the pane.
 - While goat is attached, the server does NOT answer terminal queries
   (DA/DSR/CPR). Goat's emulator must answer, which it already does:
@@ -238,6 +257,24 @@ After `Dial`, `List()`. For every pane with `Attached == 0`:
 3. Start the reader and wait goroutines as for spawned panes. Output that
    arrived after the snapshot is already buffered in `p` and is read next,
    so nothing is lost.
+3a. History older than the snapshot (`p.HistoryFirst > p.HistoryOldest`)
+   stays on the server. Attach with a modest count (e.g. the window's
+   scrollback_lines) to keep attaching fast. When the user scrolls back past
+   the start of the emulator's scrollback, fetch older lines **in a goroutine**:
+   `c.History(id, before, n)`, with `before` = the number of the oldest line
+   goat has, starting at `p.HistoryFirst`. Post them to the loop. Keep them
+   in a separate per-window list in front of the emulator's scrollback; the
+   vt emulator can't prepend history.
+
+   Each line is text with SGR escape sequences. To draw one, parse it into
+   cells, e.g. by writing it into a 1-row scratch `vt.Emulator` of the
+   window's width. Line numbers are absolute and stable, so a page can
+   never overlap or skip lines. Stop at `!page.More()`, and show "older
+   history discarded" if `page.Oldest > 0`. Everything before
+   `p.HistoryFirst` is older than what goat already holds (the snapshot and
+   later output), so pages fit in front of goat's scrollback without
+   overlap. Don't try to match goat's own later scrollback lines to server
+   numbers: wrapping differs, e.g. in no-wrap mode.
 4. Place the window. The simplest way is to cascade like `newWindow`. To
    restore exact geometry, colors, frame and background status, keep a small
    state file keyed by `(pane ID, PID, Created)`, e.g.
@@ -314,6 +351,10 @@ Cover:
 5. The server unreachable at start: goat starts with local PTYs and a
    warning.
 6. Resizing during a drag doesn't block the loop, and the last size wins.
+7. A large paste into a program that isn't reading (`sleep 5; cat`) doesn't
+   block the loop, and arrives complete once the program reads.
+8. A program with a lot of output (`yes | head -n 1000000`) is shown in
+   full, and the loop stays responsive while it runs.
 
 Then run `go vet ./...` and `go test -race ./...`, and check by hand in a
 real terminal: vim/htop in an offloaded window survive quitting goat and

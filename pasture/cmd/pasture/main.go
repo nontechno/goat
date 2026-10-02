@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,6 +40,8 @@ func run() int {
 	level := flag.String("log-level", "info", "debug, info, warn or error")
 	daemon := flag.Bool("d", false, "run in the background")
 	version := flag.Bool("version", false, "print the protocol version and exit")
+	histDir := flag.String("history-dir", "", "directory for history moved out of memory (default: <socket>.history)")
+	histMax := flag.String("history-max", "64M", "history kept on disk per pane (K, M, G suffixes; 0 = no history on disk)")
 	flag.Parse()
 	if *version {
 		fmt.Printf("pasture protocol %d\n", pasture.ProtocolVersion)
@@ -95,7 +98,16 @@ func run() int {
 		}
 	}()
 
-	srv, err := pasture.NewServer(pasture.Config{Socket: *sock, Logger: log})
+	maxBytes, err := parseBytes(*histMax)
+	if err != nil {
+		log.Error("bad -history-max", "value", *histMax, "err", err)
+		return 2
+	}
+	if *histDir == "" {
+		*histDir = *sock + ".history"
+	}
+	srv, err := pasture.NewServer(pasture.Config{Socket: *sock, Logger: log,
+		History: pasture.HistoryConfig{Dir: *histDir, MaxBytes: maxBytes}})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		if out.path != "" {
@@ -130,8 +142,9 @@ func startDaemon(sock, logPath string) int {
 	}
 	args := []string{"-S", sock, "-log", logPath}
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "log-level" {
-			args = append(args, "-log-level", f.Value.String())
+		switch f.Name {
+		case "log-level", "history-dir", "history-max":
+			args = append(args, "-"+f.Name, f.Value.String())
 		}
 	})
 	cmd := exec.Command(exe, args...)
@@ -203,4 +216,23 @@ func (l *logFile) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.f.Write(p)
+}
+
+// parseBytes reads a size like "64M", "1G", "512K" or "1048576".
+func parseBytes(s string) (int64, error) {
+	s = strings.TrimSpace(strings.ToUpper(s))
+	mult := int64(1)
+	switch {
+	case strings.HasSuffix(s, "K"):
+		mult, s = 1<<10, strings.TrimSuffix(s, "K")
+	case strings.HasSuffix(s, "M"):
+		mult, s = 1<<20, strings.TrimSuffix(s, "M")
+	case strings.HasSuffix(s, "G"):
+		mult, s = 1<<30, strings.TrimSuffix(s, "G")
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("want a size like 64M")
+	}
+	return n * mult, nil
 }

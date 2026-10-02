@@ -20,6 +20,21 @@ type Scrollback struct {
 	start    int       // index in ring of the oldest line
 	maxLines int
 	pushed   int // lines ever pushed (GOAT PATCH, see Pushed)
+
+	// onEvict, if set, sees each line as it is dropped to make room (GOAT
+	// PATCH, see SetEvictHandler).
+	onEvict func(n int, line uv.Line)
+}
+
+// SetEvictHandler sets a function called with each line that is about to
+// be dropped because the buffer is full (or made smaller), oldest first
+// (GOAT PATCH). n is the line's number (see Pushed: the n-th line ever
+// pushed, from 0). The line is only valid during the call. Lines removed by
+// Clear are not passed to it.
+func (s *Scrollback) SetEvictHandler(fn func(n int, line uv.Line)) {
+	if s != nil {
+		s.onEvict = fn
+	}
 }
 
 // Pushed returns how many lines were ever pushed, including those since
@@ -83,6 +98,9 @@ func (s *Scrollback) Push(line uv.Line) {
 	// larger slot, or letting append over-allocate, left the buffer holding
 	// about twice the cells it used.
 	old := s.ring[s.start]
+	if s.onEvict != nil {
+		s.onEvict(s.pushed-1-len(s.ring), old)
+	}
 	if cap(old) < n {
 		old = make(uv.Line, 0, (n+15)&^15)
 	}
@@ -144,6 +162,11 @@ func (s *Scrollback) SetMaxLines(maxLines int) {
 	s.maxLines = maxLines
 	if len(s.ring) > maxLines {
 		// Remove oldest lines
+		if s.onEvict != nil {
+			for i, l := range s.ring[:len(s.ring)-maxLines] {
+				s.onEvict(s.pushed-len(s.ring)+i, l)
+			}
+		}
 		s.ring = append([]uv.Line(nil), s.ring[len(s.ring)-maxLines:]...)
 	}
 }
