@@ -3,12 +3,16 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 	"github.com/rivo/uniseg"
 )
 
@@ -19,10 +23,12 @@ import (
 // the time and the window it came from; repeats in a row are merged
 // ("bell ×5").
 //
-// While it is shown it covers the middle of the screen: Esc, q or Alt+-
-// close it; arrows, PageUp/PageDown, Home/End scroll it. Other Alt
-// shortcuts keep working; plain keys and pastes don't reach programs. The
-// status bar shows "!N" while N events are unseen.
+// It is a regular floating window (move, resize, focus, pin, scroll back,
+// select and copy, Alt+b colors), with no program behind it: only Alt+-
+// hides it, and shows it again where it was. While it has the focus, keys
+// other than shortcuts scroll it (arrows, PageUp/PageDown, Home/End) and
+// are not sent anywhere. The status bar shows "!N" while it is hidden and
+// N events came in.
 
 type eventKind string
 
@@ -54,9 +60,17 @@ const (
 // events is the events window's state. Owned by the event loop.
 type events struct {
 	list   []event
-	shown  bool
-	scroll int // lines scrolled up from the newest
-	unseen int // added while not shown
+	win    *Window // the window (nil until first shown)
+	unseen int     // added while it was hidden
+
+	// What the window's emulator holds: synced entries, drawn with these
+	// column widths, the last one with lastCount repeats. full forces a
+	// redraw (entries dropped at the front).
+	synced      int
+	lastCount   int
+	winW, kindW int
+	full        bool
+	changed     bool // the list changed since the window was updated
 }
 
 // logEvent records an event from w (nil = goat itself).
@@ -79,16 +93,15 @@ func (m *WM) logEvent(w *Window, kind eventKind, text string) {
 	}
 	if len(ev.list) >= maxEvents {
 		ev.list = append(ev.list[:0], ev.list[len(ev.list)-maxEvents+1:]...)
+		ev.full = true
 	}
 	ev.list = append(ev.list, event{at: now, win: who, kind: kind, text: text, count: 1})
-	if ev.shown && ev.scroll > 0 {
-		ev.scroll++ // keep the lines being read in place
-	}
 	m.eventAdded()
 }
 
 func (m *WM) eventAdded() {
-	if !m.ev.shown {
+	m.ev.changed = true
+	if !m.eventsShown() {
 		m.ev.unseen++
 	}
 	m.dirty = true
@@ -187,81 +200,168 @@ func parseNotification(osc []byte) (text string, ok bool) {
 	return "", false
 }
 
-// ---- showing ----------------------------------------------------------------
+// ---- the window ---------------------------------------------------------------
 
+// isEvents reports whether w is the events window.
+func (m *WM) isEvents(w *Window) bool { return w != nil && w == m.ev.win }
+
+// eventsShown reports whether the events window is on screen.
+func (m *WM) eventsShown() bool {
+	return m.ev.win != nil && slices.Contains(m.windows, m.ev.win)
+}
+
+// toggleEvents shows the events window (on top, focused; where it was
+// last time) or hides it.
 func (m *WM) toggleEvents() {
-	m.ev.shown = !m.ev.shown
-	m.ev.scroll, m.ev.unseen = 0, 0
-	m.drag = drag{}
+	if m.eventsShown() {
+		m.hideEvents()
+		return
+	}
+	if m.ev.win == nil {
+		m.ev.win = m.newEventsWindow()
+	}
+	w := m.ev.win
+	m.place(w, w.x, w.y, w.w, w.h) // the screen may have changed size
+	m.windows = append(m.windows, w)
+	m.ev.unseen, m.ev.changed = 0, true
+	m.focus(w)
+}
+
+// hideEvents takes the events window off screen; its place and contents
+// are kept for the next Alt+-.
+func (m *WM) hideEvents() {
+	w := m.ev.win
+	i := slices.Index(m.windows, w)
+	if i < 0 {
+		return
+	}
+	m.clearSelectionIn(w)
+	m.windows = slices.Delete(m.windows, i, i+1)
+	if m.drag.win == w {
+		m.drag = drag{}
+	}
+	if m.focused == w {
+		m.focused = nil
+		if n := len(m.windows); n > 0 {
+			m.focus(m.windows[n-1])
+		}
+	}
 	m.dirty = true
 }
 
-// eventsKey handles a key while the events window is shown.
-func (m *WM) eventsKey(k uv.Key) error {
-	if k.Mod.Contains(uv.ModAlt) {
-		_, err := m.shortcut(k) // the window manager still works (Alt+- closes)
-		return err
-	}
-	page := max(m.eventsBox().h-3, 1)
-	switch {
-	case k.Code == uv.KeyEscape, k.Code == 'q' && k.Mod == 0:
-		m.toggleEvents()
-	case k.Code == uv.KeyUp, k.Code == 'k' && k.Mod == 0:
-		m.scrollEvents(1)
-	case k.Code == uv.KeyDown, k.Code == 'j' && k.Mod == 0:
-		m.scrollEvents(-1)
-	case k.Code == uv.KeyPgUp:
-		m.scrollEvents(page)
-	case k.Code == uv.KeyPgDown:
-		m.scrollEvents(-page)
-	case k.Code == uv.KeyHome, k.Code == 'g' && k.Mod == 0:
-		m.scrollEvents(len(m.ev.list))
-	case k.Code == uv.KeyEnd, k.Code == 'G' || (k.Code == 'g' && k.Mod == uv.ModShift):
-		m.scrollEvents(-len(m.ev.list))
-	}
-	return nil // anything else is not for the programs underneath
-}
-
-func (m *WM) scrollEvents(n int) {
-	s := clamp(m.ev.scroll+n, 0, max(len(m.ev.list)-max(m.eventsBox().h-2, 1), 0))
-	if s != m.ev.scroll {
-		m.ev.scroll = s
-		m.dirty = true
-	}
-}
-
-// eventsMouse handles the mouse while the events window is shown: the
-// wheel scrolls it, a click outside it closes it.
-func (m *WM) eventsMouse(ev uv.MouseEvent) {
-	mo := ev.Mouse()
-	b := m.eventsBox()
-	inside := mo.X >= b.x && mo.X < b.x+b.w && mo.Y >= b.y && mo.Y < b.y+b.h
-	switch ev.(type) {
-	case uv.MouseWheelEvent:
-		switch mo.Button {
-		case uv.MouseWheelUp:
-			m.scrollEvents(3)
-		case uv.MouseWheelDown:
-			m.scrollEvents(-3)
-		}
-	case uv.MouseClickEvent:
-		if !inside {
-			m.toggleEvents()
-		}
-	}
-}
-
-type box struct{ x, y, w, h int }
-
-// eventsBox is where the events window goes: centered above the status
-// bar, most of its width, and as tall as the list (up to most of its
-// height).
-func (m *WM) eventsBox() box {
+// newEventsWindow makes the window: a frame and an emulator holding the
+// list, no program. Centered, most of the width, up to 30 rows.
+func (m *WM) newEventsWindow() *Window {
 	area := m.areaH()
-	w := min(m.cols, max(min(m.cols-4, 100), m.cols*4/5))
-	maxH := min(area, max(min(area-2, 30), area*3/5))
-	h := clamp(len(m.ev.list)+2, min(6, maxH), maxH)
-	return box{x: (m.cols - w) / 2, y: (area - h) / 2, w: w, h: h}
+	width := min(m.cols, max(min(m.cols-4, 100), m.cols*4/5))
+	height := min(area, max(min(area-2, 30), area*3/5))
+	w := &Window{
+		id: -1, x: (m.cols - width) / 2, y: (area - height) / 2, w: width, h: height,
+		decorated: !m.cfg.DisableMouse, frame: m.cfg.frame,
+		shellName: "events", nowrapW: m.cfg.NowrapWidth, nowrap: !m.cfg.WrapLines,
+		mouseModes: map[ansi.DECMode]bool{}, colorIndex: -1,
+		// no cursor, no input queue, no PTY
+	}
+	w.emu = vt.NewEmulator(w.emuWidth(w.contentW()), w.contentH())
+	w.emu.SetScrollbackSize(maxEvents + 100)
+	go func() { _, _ = io.Copy(io.Discard, w.emu) }() // replies go nowhere
+	m.initBackground(w)
+	m.applyHostColors(w)
+	m.ev.full, m.ev.changed = true, true
+	logger.Info("events window opened")
+	return w
+}
+
+// syncEvents brings the window's contents up to date with the list:
+// usually by appending lines (or rewriting the last one, when a repeat was
+// merged into it), else by redrawing it all. Called before drawing.
+func (m *WM) syncEvents() {
+	ev := &m.ev
+	w := ev.win
+	if w == nil || !ev.changed || !m.eventsShown() {
+		return
+	}
+	ev.changed = false
+	winW, kindW := 0, 0
+	for _, e := range ev.list {
+		winW = max(winW, min(uniseg.StringWidth(e.win), 20))
+		kindW = max(kindW, kindWidth(e))
+	}
+	redraw := ev.full || ev.synced == 0 || ev.synced > len(ev.list) || winW != ev.winW || kindW != ev.kindW
+	var b strings.Builder
+	if !redraw && ev.list[ev.synced-1].count != ev.lastCount {
+		// A repeat was merged into the last line: rewrite it, if it is one row.
+		e := ev.list[ev.synced-1]
+		line := eventLine(e, winW, kindW)
+		if !w.nowrap && uniseg.StringWidth(line) > w.contentW() {
+			redraw = true
+		} else {
+			b.WriteString("\r\x1b[2K" + eventSGR(e, line))
+		}
+	}
+	if redraw {
+		_ = w.feed([]byte("\x1b[0m\x1b[H\x1b[2J"))
+		w.emu.ClearScrollback()
+		w.scroll = 0
+		b.Reset()
+		if len(ev.list) == 0 {
+			b.WriteString("Nothing yet. Bells, desktop notifications, clipboard writes,\r\n" +
+				"programs exiting and user@host changes are listed here.")
+		}
+		for i, e := range ev.list {
+			if i > 0 {
+				b.WriteString("\r\n")
+			}
+			b.WriteString(eventSGR(e, eventLine(e, winW, kindW)))
+		}
+	} else {
+		for _, e := range ev.list[ev.synced:] {
+			b.WriteString("\r\n" + eventSGR(e, eventLine(e, winW, kindW)))
+		}
+	}
+	_ = w.feed([]byte(b.String())) // (a scrolled-back view stays in place)
+	ev.synced, ev.full, ev.winW, ev.kindW = len(ev.list), false, winW, kindW
+	if n := len(ev.list); n > 0 {
+		ev.lastCount = ev.list[n-1].count
+	}
+}
+
+// eventSGR wraps an entry's line in its style: bold for what asks for
+// attention (bells, notifications, errors).
+func eventSGR(e event, line string) string {
+	switch e.kind {
+	case evBell, evNotify, evError:
+		return "\x1b[1m" + line + "\x1b[0m"
+	}
+	return line
+}
+
+// eventsKey handles a key for the focused events window: scrolling keys
+// scroll it; nothing is sent anywhere.
+func (m *WM) eventsKey(w *Window, k uv.Key) {
+	page := max(w.contentH()-1, 1)
+	switch k.Code {
+	case uv.KeyUp:
+		m.scrollWindow(w, 1)
+	case uv.KeyDown:
+		m.scrollWindow(w, -1)
+	case uv.KeyPgUp:
+		m.scrollWindow(w, page)
+	case uv.KeyPgDown:
+		m.scrollWindow(w, -page)
+	case uv.KeyHome:
+		m.scrollWindow(w, w.emu.ScrollbackLen())
+	case uv.KeyEnd:
+		m.scrollWindow(w, -w.scroll)
+	}
+}
+
+func kindWidth(e event) int {
+	n := len(e.kind)
+	if e.count > 1 {
+		n += uniseg.StringWidth(fmt.Sprintf(" ×%d", e.count))
+	}
+	return n
 }
 
 // eventLine formats one entry: "18:26:03  2:vim  bell ×3  text", with the
@@ -285,80 +385,10 @@ func padRight(s string, w int) string {
 	return s
 }
 
-// drawEvents draws the events window, newest entry at the bottom.
-func (m *WM) drawEvents(scr uv.Screen) {
-	if !m.ev.shown {
-		return
-	}
-	b := m.eventsBox()
-	if b.w < 4 || b.h < 3 {
-		return
-	}
-	th := m.cfg.Theme
-	base := uv.Style{Fg: th.StatusFg.C, Bg: th.StatusBg.C}
-	border := uv.Style{Fg: th.FocusedBorder.C, Bg: th.StatusBg.C, Attrs: uv.AttrBold}
-	x1, y1 := b.x+b.w-1, b.y+b.h-1
-	fill := &uv.Cell{Content: " ", Width: 1, Style: base}
-	for y := b.y; y <= y1; y++ {
-		for x := b.x; x <= x1; x++ {
-			put(scr, x, y, fill)
-		}
-		put(scr, b.x, y, runeCell('│', border))
-		put(scr, x1, y, runeCell('│', border))
-	}
-	for x := b.x + 1; x < x1; x++ {
-		put(scr, x, b.y, runeCell('─', border))
-		put(scr, x, y1, runeCell('─', border))
-	}
-	put(scr, b.x, b.y, runeCell('╭', border))
-	put(scr, x1, b.y, runeCell('╮', border))
-	put(scr, b.x, y1, runeCell('╰', border))
-	put(scr, x1, y1, runeCell('╯', border))
-
-	title := fmt.Sprintf(" events (%d) ", len(m.ev.list))
-	end := putCells(scr, b.x+2, b.y, textCells(title, border, b.w-4))
-	hint := " Esc: close  ↑↓ PgUp PgDn: scroll "
-	if hw := len([]rune(hint)); end+1+hw <= x1-1 {
-		hst := base
-		hst.Fg = th.HintText.C
-		putCells(scr, x1-1-hw, y1, textCells(hint, hst, hw))
-	}
-
-	rows, textW := b.h-2, b.w-4
-	list := m.ev.list
-	if len(list) == 0 {
-		hst := base
-		hst.Fg = th.HintText.C
-		putCells(scr, b.x+2, b.y+1, textCells("Nothing yet. Bells, desktop notifications, clipboard writes,", hst, textW))
-		putCells(scr, b.x+2, b.y+2, textCells("programs exiting and user@host changes are listed here.", hst, textW))
-		return
-	}
-	last := len(list) - m.ev.scroll // exclusive
-	first := max(last-rows, 0)
-	y := b.y + 1 + rows - (last - first) // newest at the bottom
-	winW, kindW := 0, 0                  // align the columns of the lines shown
-	for _, e := range list[first:last] {
-		winW = max(winW, min(uniseg.StringWidth(e.win), 20))
-		kindW = max(kindW, len(e.kind)+pick(e.count > 1, len(fmt.Sprintf(" ×%d", e.count))-1, 0))
-	}
-	for _, e := range list[first:last] {
-		st := base
-		switch e.kind {
-		case evBell, evNotify, evError:
-			st.Fg = th.HintText.C
-		}
-		putCells(scr, b.x+2, y, textCells(eventLine(e, winW, kindW), st, textW))
-		y++
-	}
-	if m.ev.scroll > 0 {
-		more := fmt.Sprintf(" ↓ %d newer ", m.ev.scroll)
-		putCells(scr, b.x+2, y1, textCells(more, border, textW))
-	}
-}
-
-// eventsIndicator is the status bar's "!N" for unseen events ("" if none).
+// eventsIndicator is the status bar's "!N": events that came in while the
+// events window was hidden ("" if none).
 func (m *WM) eventsIndicator() string {
-	if m.ev.unseen == 0 || m.ev.shown {
+	if m.ev.unseen == 0 || m.eventsShown() {
 		return ""
 	}
 	return fmt.Sprintf(" !%d ", m.ev.unseen)

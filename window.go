@@ -316,7 +316,7 @@ func (w *Window) feed(data []byte) (err error) {
 
 // send writes raw input to the program and returns to the live view.
 func (w *Window) send(b []byte) {
-	if w.closed || len(b) == 0 {
+	if w.closed || len(b) == 0 || w.in == nil { // (no program: the events window)
 		return
 	}
 	w.scroll = 0
@@ -415,6 +415,9 @@ func (w *Window) close() {
 	if pw, ok := w.emu.InputPipe().(*io.PipeWriter); ok {
 		_ = pw.CloseWithError(io.EOF)
 	}
+	if w.cmd == nil { // no program (the events window)
+		return
+	}
 	w.in.Close()
 	_ = w.ptmx.Close()
 	if p := w.cmd.Process; p != nil && !w.exited.Load() {
@@ -426,7 +429,7 @@ func (w *Window) close() {
 
 // refreshProcName updates the foreground process name; reports a change.
 func (w *Window) refreshProcName() bool {
-	if w.closed {
+	if w.closed || w.cmd == nil {
 		return false
 	}
 	name := foregroundProcessName(w.ptmx, w.cmd)

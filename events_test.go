@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -68,76 +70,116 @@ func TestEventLogMergesCapsAndCleans(t *testing.T) {
 	}
 }
 
-// Alt+- shows and hides it; while shown, plain keys and pastes don't reach
-// the program, the cursor is hidden, and the list is drawn over the windows.
+// Alt+- shows it as a regular window and only Alt+- hides it (not Esc,
+// q, Alt+x or a click elsewhere); it comes back where it was. Keys typed
+// into it go nowhere; other windows keep their numbers.
 func TestEventsWindow(t *testing.T) {
-	m := newWM(DefaultConfig(), nil, 80, 24)
-	w := fakeFramed(1, 0, 0, 40, 10, true, frameCompact)
-	m.windows = []*Window{w}
-	m.focus(w)
-	m.logEvent(w, evNotify, "build done")
-	m.logEvent(w, evBell, "")
+	m := newWM(DefaultConfig(), nil, 100, 30)
+	a := fakeFramed(1, 0, 0, 40, 10, true, frameCompact)
+	b := fakeFramed(2, 50, 0, 40, 10, true, frameCompact)
+	m.windows = []*Window{a, b}
+	m.focus(a)
+	m.logEvent(a, evNotify, "build done")
+	m.logEvent(a, evBell, "")
+	if m.eventsIndicator() != " !2 " {
+		t.Errorf("indicator %q", m.eventsIndicator())
+	}
 
-	if err := m.handleKey(uv.Key{Code: '-', Mod: uv.ModAlt}); err != nil || !m.ev.shown {
-		t.Fatalf("Alt+- did not show the events window (err %v)", err)
+	alt := func(r rune) { _ = m.handleKey(uv.Key{Code: r, Mod: uv.ModAlt}) }
+	alt('-')
+	ew := m.ev.win
+	if !m.eventsShown() || m.focused != ew {
+		t.Fatal("Alt+- did not show and focus the events window")
 	}
-	if m.ev.unseen != 0 || m.eventsIndicator() != "" {
-		t.Error("unseen count not cleared when shown")
-	}
-	before := pendingInput(w)
-	_ = m.handleKey(uv.Key{Code: 'x', Text: "x"})
-	_ = m.handleKey(uv.Key{Code: uv.KeyUp})
-	m.paste("rm -rf /\n")
-	if pendingInput(w) != before {
-		t.Error("input reached the program while the events window was shown")
-	}
-	if _, _, ok := m.cursorFor(); ok {
-		t.Error("cursor shown under the events window")
+	if m.eventsIndicator() != "" || m.number(b) != 2 || m.titleLabel(ew) != "events" {
+		t.Errorf("indicator %q, number of b %d, title %q", m.eventsIndicator(), m.number(b), m.titleLabel(ew))
 	}
 	screen := strings.Join(render(m), "\n")
-	for _, want := range []string{"events (2)", "1:bash  notify  build done", "1:bash  bell"} {
+	for _, want := range []string{"events", "1:bash  notify  build done", "1:bash  bell"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("%q not on screen:\n%s", want, screen)
 		}
 	}
 
+	// Not closed by Esc, q, Alt+x or clicks; typing and pasting go nowhere.
+	before := pendingInput(a) + pendingInput(b)
 	_ = m.handleKey(uv.Key{Code: uv.KeyEscape})
-	if m.ev.shown {
-		t.Fatal("Esc did not close the events window")
+	m.escExpired()
+	_ = m.handleKey(uv.Key{Code: 'q', Text: "q"})
+	alt('x')
+	m.paste("rm -rf /\n")
+	if !m.eventsShown() {
+		t.Fatal("events window closed by Esc, q or Alt+x")
 	}
-	m.logEvent(w, evBell, "x")
-	if !strings.Contains(render(m)[23], "!1") {
-		t.Errorf("no unseen indicator in the status bar: %q", render(m)[23])
+	if pendingInput(a)+pendingInput(b) != before {
+		t.Error("input typed into the events window reached a program")
 	}
-	_ = m.handleKey(uv.Key{Code: '-', Mod: uv.ModAlt})
-	_ = m.handleKey(uv.Key{Code: '-', Mod: uv.ModAlt})
-	if m.ev.shown {
-		t.Error("Alt+- did not close the events window")
+	m.handleMouse(uv.MouseClickEvent{X: 1, Y: 1, Button: uv.MouseLeft}) // focus another window
+	if !m.eventsShown() || m.focused != a {
+		t.Fatal("clicking another window hid the events window, or didn't focus it")
 	}
+	m.logEvent(b, evBell, "")
+	if m.eventsIndicator() != "" {
+		t.Error("events counted as unseen while the window is shown")
+	}
+	m.focus(ew) // (window 1, raised by the click, covers part of it)
+	if !strings.Contains(strings.Join(render(m), "\n"), "2:bash  bell") {
+		t.Error("new event not shown in the open window")
+	}
+
+	// Move it, hide it (from another window), show it again: same place.
+	m.place(ew, 5, 4, 60, 12)
+	alt('-')
+	if m.eventsShown() || slices.Contains(m.windows, ew) || m.focused == ew {
+		t.Fatal("Alt+- did not hide the events window")
+	}
+	m.logEvent(a, evExit, "exit status 0")
+	if m.eventsIndicator() != " !1 " {
+		t.Errorf("indicator %q", m.eventsIndicator())
+	}
+	alt('-')
+	if ew != m.ev.win || ew.x != 5 || ew.y != 4 || ew.w != 60 || ew.h != 12 {
+		t.Errorf("shown again at %d,%d %dx%d", ew.x, ew.y, ew.w, ew.h)
+	}
+	if !strings.Contains(strings.Join(render(m), "\n"), "exit status 0") {
+		t.Error("event that came in while hidden is missing")
+	}
+	m.closeAll() // quitting with it open is fine
 }
 
-// Scrolling stays within the list; the newest entry is shown by default.
+// Many events: the newest is in view, older ones are in its history, and
+// scrolling keys scroll it while it has the focus.
 func TestEventsWindowScroll(t *testing.T) {
-	m := newWM(DefaultConfig(), nil, 60, 12)
+	m := newWM(DefaultConfig(), nil, 60, 14)
 	for i := range 40 {
-		m.logEvent(nil, evError, "entry "+string(rune('A'+i%26))+strings.Repeat(".", i))
+		m.logEvent(nil, evError, fmt.Sprintf("entry %02d", i))
 	}
 	m.toggleEvents()
-	if !strings.Contains(strings.Join(render(m), "\n"), "entry N"+strings.Repeat(".", 39)[:10]) {
-		t.Error("newest entry not shown")
+	w := m.ev.win
+	screen := strings.Join(render(m), "\n")
+	if !strings.Contains(screen, "entry 39") || strings.Contains(screen, "entry 00") {
+		t.Fatalf("newest entry not in view:\n%s", screen)
 	}
 	_ = m.handleKey(uv.Key{Code: uv.KeyHome})
-	top := m.ev.scroll
-	if !strings.Contains(strings.Join(render(m), "\n"), "error  entry A ") {
-		t.Error("oldest entry not shown after Home")
+	if !strings.Contains(strings.Join(render(m), "\n"), "entry 00") || w.scroll == 0 {
+		t.Error("Home: oldest entry not shown")
 	}
-	_ = m.handleKey(uv.Key{Code: uv.KeyPgUp})
-	if m.ev.scroll != top {
-		t.Errorf("scrolled past the oldest entry: %d > %d", m.ev.scroll, top)
+	m.logEvent(nil, evError, "entry 40")
+	if s := strings.Join(render(m), "\n"); !strings.Contains(s, "entry 00") {
+		t.Errorf("a new event moved the scrolled-back view:\n%s", s)
 	}
 	_ = m.handleKey(uv.Key{Code: uv.KeyEnd})
-	if m.ev.scroll != 0 {
-		t.Errorf("End: scroll %d", m.ev.scroll)
+	if !strings.Contains(strings.Join(render(m), "\n"), "entry 40") || w.scroll != 0 {
+		t.Error("End: newest entry not shown")
+	}
+	for range 3 {
+		m.logEvent(nil, evBell, "")
+	}
+	if !strings.Contains(strings.Join(render(m), "\n"), "bell ×3") {
+		t.Error("merged repeat not updated in place")
+	}
+	if n := strings.Count(strings.Join(render(m), "\n"), "bell"); n != 1 {
+		t.Errorf("bell shown %d times", n)
 	}
 }
 

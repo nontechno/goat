@@ -15,6 +15,7 @@ type scene struct{ m *WM }
 
 func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 	m := s.m
+	m.syncEvents()                // the events window's contents (events.go)
 	for _, w := range m.windows { // bottom to top: later windows cover earlier
 		if !w.background {
 			m.drawFrame(scr, w)
@@ -22,7 +23,6 @@ func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 		m.drawContent(scr, w)
 		m.drawScrollMarker(scr, w)
 	}
-	m.drawEvents(scr) // over the windows (when shown)
 	m.drawStatus(scr) // last, so windows never cover it
 }
 
@@ -101,7 +101,7 @@ func (m *WM) borderColor(w *Window) color.Color {
 }
 
 func (m *WM) titleLabel(w *Window) string {
-	s := fmt.Sprintf("%d:%s", m.number(w), w.displayTitle(m.cfg.TitleSource))
+	s := m.tabName(w)
 	if w.scroll > 0 {
 		s += fmt.Sprintf(" [-%d]", w.scroll)
 	}
@@ -340,7 +340,7 @@ func (m *WM) drawStatus(scr uv.Screen) {
 	m.tabs = m.tabs[:0]
 	x := 0
 	for _, w := range m.cycle() {
-		label := fmt.Sprintf(" %d:%s", m.number(w), w.displayTitle(m.cfg.TitleSource))
+		label := " " + m.tabName(w)
 		if w.pinned {
 			label += "*"
 		}
@@ -437,7 +437,7 @@ func homeShort(dir, home string) string {
 // window.
 func (m *WM) cursorFor() (x, y int, ok bool) {
 	w := m.focused
-	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 || m.ev.shown {
+	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 {
 		return 0, 0, false
 	}
 	p := w.emu.CursorPosition()

@@ -80,7 +80,7 @@ func cleanHostName(s string) string {
 // the name is shortened (keeping at least 4 columns) or left out; it never
 // covers the wrap indicator.
 func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
-	if !m.showIdent() || w.background || w.frame == frameNone {
+	if !m.showIdent() || w.background || w.frame == frameNone || m.isEvents(w) {
 		return
 	}
 	name := m.frameLabel(w)

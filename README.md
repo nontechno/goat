@@ -55,8 +55,11 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 - Events window (Alt+-): bells, desktop notifications (OSC 9, OSC 777,
   kitty's OSC 99), clipboard writes, programs exiting, `user@host` changes,
   config warnings and goat's errors, with the time and the window each came
-  from. The status bar shows `!N` while N of them are unseen. Esc, `q` or
-  Alt+- close it; arrows, PageUp/PageDown and Home/End scroll it
+  from. It is a regular window (move, resize, pin, scroll, select and copy)
+  without a program; it stays until Alt+- hides it, and Alt+- brings it back
+  where it was. While it is hidden, the status bar shows `!N` for the N
+  events that came in. With it focused, arrows, PageUp/PageDown and
+  Home/End scroll it
 - Programs in windows can set the clipboard too (OSC 52, e.g. from vim, tmux
   or neovim); goat passes it on. Programs can't read the clipboard.
 - Select text with the mouse and it is copied to the clipboard: through the

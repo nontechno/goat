@@ -204,9 +204,10 @@ func (m *WM) focus(w *Window) {
 }
 
 // byID returns the floating windows in creation order (the numbers shown in
-// titles and used by Alt+1..9). Stable, unlike the z-order.
+// titles and used by Alt+1..9). Stable, unlike the z-order. The events
+// window has no number, so showing it doesn't renumber the others.
 func (m *WM) byID() []*Window {
-	ws := slices.DeleteFunc(slices.Clone(m.windows), func(w *Window) bool { return w.background })
+	ws := slices.DeleteFunc(slices.Clone(m.windows), func(w *Window) bool { return w.background || m.isEvents(w) })
 	slices.SortFunc(ws, func(a, b *Window) int { return a.id - b.id })
 	return ws
 }
@@ -219,13 +220,26 @@ func (m *WM) number(w *Window) int {
 	return slices.Index(m.byID(), w) + 1
 }
 
-// cycle is the Alt+n / Alt+p order: the background, then windows by number.
+// cycle is the Alt+n / Alt+p order: the background, then windows by
+// number, then the events window if shown.
 func (m *WM) cycle() []*Window {
 	ws := m.byID()
 	if m.bg != nil {
 		ws = append([]*Window{m.bg}, ws...)
 	}
+	if m.eventsShown() {
+		ws = append(ws, m.ev.win)
+	}
 	return ws
+}
+
+// tabName is a window's name in its title and status bar tab: "2:vim",
+// or "events".
+func (m *WM) tabName(w *Window) string {
+	if m.isEvents(w) {
+		return "events"
+	}
+	return fmt.Sprintf("%d:%s", m.number(w), w.displayTitle(m.cfg.TitleSource))
 }
 
 // topAt returns the topmost window containing the screen point.
@@ -423,6 +437,8 @@ func (m *WM) run(a action) error {
 		case w == nil:
 		case w.background:
 			m.setStatus("the background shell can't be closed: type exit, or Alt+"+m.cfg.Keys.Quit+" to quit", 4*time.Second)
+		case m.isEvents(w):
+			m.setStatus("Alt+"+m.cfg.Keys.ShowEvents+" hides the events window", 3*time.Second)
 		default:
 			m.remove(w)
 		}
@@ -545,10 +561,6 @@ func (m *WM) handleKey(k uv.Key) error {
 		}
 		return nil
 	}
-	if m.ev.shown {
-		m.cancelEsc()
-		return m.eventsKey(k)
-	}
 
 	// Esc followed quickly by a character key acts as Alt+key. Anything else
 	// is not a shortcut: deliver the held-back Esc, then handle the key.
@@ -591,6 +603,10 @@ func (m *WM) handleKey(k uv.Key) error {
 		return nil
 	}
 
+	if w := m.focused; m.isEvents(w) {
+		m.eventsKey(w, k) // scrolling keys; there is no program to type to
+		return nil
+	}
 	if w := m.focused; w != nil {
 		m.clearSelectionIn(w)
 		m.sendFocused(encodeKey(k, w.appCursor)) // redraws if it was scrolled back
@@ -627,8 +643,8 @@ func (m *WM) sendFocused(b []byte) {
 }
 
 func (m *WM) paste(text string) {
-	if m.ev.shown {
-		m.setStatus("not pasted: close the events window first", 3*time.Second)
+	if m.isEvents(m.focused) {
+		m.setStatus("not pasted: the events window takes no input", 3*time.Second)
 		return
 	}
 	if w := m.focused; w != nil && !w.closed && text != "" {
@@ -690,10 +706,6 @@ func (m *WM) forwardMouse(w *Window, ev uv.MouseEvent) {
 
 func (m *WM) handleMouse(ev uv.MouseEvent) {
 	if m.cfg.DisableMouse {
-		return
-	}
-	if m.ev.shown {
-		m.eventsMouse(ev)
 		return
 	}
 	mo := ev.Mouse()
