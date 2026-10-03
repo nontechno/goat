@@ -186,6 +186,9 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 	if err := m.startBackground(); err != nil {
 		return fmt.Errorf("starting shell %q: %w", m.shell(), err)
 	}
+	for _, w := range warns {
+		m.logEvent(nil, evConfig, w)
+	}
 	if len(warns) > 0 {
 		msg := "config: " + warns[0]
 		if len(warns) > 1 {
@@ -233,6 +236,7 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 		if e := m.handleEvent(ev, scr); e != nil {
 			logger.Warn("event", "err", e, "event", fmt.Sprintf("%T", ev))
 			m.setStatus(e.Error(), 10*time.Second)
+			m.logEvent(nil, evError, e.Error())
 		}
 	}
 
@@ -249,6 +253,7 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 		case msg := <-copyErrs:
 			logger.Warn("clipboard", "err", msg, "command", strings.Join(copyCmd, " "))
 			m.setStatus(msg, 8*time.Second)
+			m.logEvent(nil, evError, "clipboard: "+msg)
 		case now := <-titles.C:
 			m.tick(now)
 		case <-frame:

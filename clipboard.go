@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 )
 
 // Copying selected text to the clipboard.
@@ -99,7 +100,11 @@ func runClipboardCommand(args []string, text string, report func(string)) {
 func (m *WM) hookClipboard(w *Window) {
 	w.onClipboard = func(osc []byte) {
 		text, ok := parseOSC52(osc)
-		if !ok || m.copy == nil {
+		if !ok {
+			return
+		}
+		m.logEvent(w, evClipboard, fmt.Sprintf("set the clipboard (%d characters)", utf8.RuneCountInString(text)))
+		if m.copy == nil {
 			return
 		}
 		m.copy(text, w.displayTitle(m.cfg.TitleSource))

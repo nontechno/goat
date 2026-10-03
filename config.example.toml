@@ -206,6 +206,7 @@ cycle_background = "b"      # next scheme from theme.window_colors
 toggle_wrap = "z"           # wrap long lines, or not (see wrap_lines)
 scroll_left = "<"           # not wrapping: view left (Alt+Shift+,)
 scroll_right = ">"          # ... and right (Alt+Shift+.)
+show_events = "-"           # events window: bells, notifications, exits, ...
 
 [layout]
 # Offset, in character cells, when cascading a new window from the focused one.

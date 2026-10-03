@@ -189,6 +189,7 @@ var macOptionChars = map[rune]rune{
 	'¡': '1', '™': '2', '£': '3', '¢': '4', '∞': '5', '§': '6', '¶': '7',
 	'•': '8', 'ª': '9', 'º': '0',
 	'¯': '<', '˘': '>', // Option+Shift+, and Option+Shift+.
+	'–': '-', // Option+- (en dash)
 }
 
 // macOptionKey turns a key that is a macOS Option character into the

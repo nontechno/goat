@@ -22,6 +22,7 @@ func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 		m.drawContent(scr, w)
 		m.drawScrollMarker(scr, w)
 	}
+	m.drawEvents(scr) // over the windows (when shown)
 	m.drawStatus(scr) // last, so windows never cover it
 }
 
@@ -328,6 +329,13 @@ func (m *WM) drawStatus(scr uv.Screen) {
 	clock := textCells(" "+time.Now().Format("15:04")+" ", clockSt, m.cols)
 	clockX := m.cols - cellsWidth(clock)
 	putCells(scr, clockX, y, clock)
+	// Unseen events (Alt+- shows them): "!3" left of the clock.
+	if ind := m.eventsIndicator(); ind != "" {
+		ist := uv.Style{Fg: m.cfg.Theme.StatusBg.C, Bg: m.cfg.Theme.HintText.C, Attrs: uv.AttrBold}
+		cs := textCells(ind, ist, clockX)
+		clockX -= cellsWidth(cs)
+		putCells(scr, clockX, y, cs)
+	}
 
 	m.tabs = m.tabs[:0]
 	x := 0
@@ -429,7 +437,7 @@ func homeShort(dir, home string) string {
 // window.
 func (m *WM) cursorFor() (x, y int, ok bool) {
 	w := m.focused
-	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 {
+	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 || m.ev.shown {
 		return 0, 0, false
 	}
 	p := w.emu.CursorPosition()

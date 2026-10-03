@@ -156,6 +156,7 @@ type KeyConfig struct {
 	ToggleWrap      string `toml:"toggle_wrap"`      // wrap long lines or not
 	ScrollLeft      string `toml:"scroll_left"`      // view sideways (no-wrap)
 	ScrollRight     string `toml:"scroll_right"`
+	ShowEvents      string `toml:"show_events"` // the events window (bells, notifications, ...)
 }
 
 // LayoutConfig holds window geometry settings.
@@ -284,7 +285,7 @@ func DefaultConfig() *Config {
 		Keys: KeyConfig{
 			NewWindow: "c", FocusNext: "n", FocusPrev: "p", Quit: "q",
 			CloseWindow: "x", PinWindow: "w", CycleBackground: "b",
-			ToggleWrap: "z", ScrollLeft: "<", ScrollRight: ">",
+			ToggleWrap: "z", ScrollLeft: "<", ScrollRight: ">", ShowEvents: "-",
 			MoveLeft: "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
 			ResizeLeft: "H", ResizeDown: "J", ResizeUp: "K", ResizeRight: "L",
 		},
@@ -323,6 +324,7 @@ const (
 	actToggleWrap
 	actScrollLeft
 	actScrollRight
+	actShowEvents
 )
 
 // finish validates the config and builds the key binding table. Problems are
@@ -421,6 +423,7 @@ func (c *Config) finish(md *toml.MetaData) []string {
 		{"toggle_wrap", &c.Keys.ToggleWrap, "z", actToggleWrap},
 		{"scroll_left", &c.Keys.ScrollLeft, "<", actScrollLeft},
 		{"scroll_right", &c.Keys.ScrollRight, ">", actScrollRight},
+		{"show_events", &c.Keys.ShowEvents, "-", actShowEvents},
 	} {
 		r, size := utf8.DecodeRuneInString(*b.val)
 		if *b.val == "" || size != len(*b.val) || (r >= '0' && r <= '9') {

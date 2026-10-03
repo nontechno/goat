@@ -78,6 +78,8 @@ type WM struct {
 	lastClickWin *Window                //
 	copy         func(text, who string) // puts text on the clipboard; who: "" or a program
 
+	ev events // the events window (events.go)
+
 	status      string    // status bar message
 	statusUntil time.Time // when it disappears
 	tabs        []tab     // status bar tab positions, for mouse clicks
@@ -139,6 +141,7 @@ func (m *WM) startBackground() error {
 	m.initBackground(win)
 	m.applyHostColors(win)
 	m.hookClipboard(win)
+	m.hookEvents(win)
 	m.bg = win
 	m.windows = slices.Insert(m.windows, 0, win)
 	if m.focused == nil {
@@ -295,6 +298,7 @@ func (m *WM) newWindow() error {
 	}
 	m.applyHostColors(win)
 	m.hookClipboard(win)
+	m.hookEvents(win)
 	m.windows = append(m.windows, win)
 	m.focus(win)
 	return nil
@@ -456,6 +460,8 @@ func (m *WM) run(a action) error {
 				m.dirty = true
 			}
 		}
+	case actShowEvents:
+		m.toggleEvents()
 	case actPinWindow:
 		if w := m.focused; w != nil && !w.background {
 			w.pinned = !w.pinned
@@ -539,6 +545,10 @@ func (m *WM) handleKey(k uv.Key) error {
 		}
 		return nil
 	}
+	if m.ev.shown {
+		m.cancelEsc()
+		return m.eventsKey(k)
+	}
 
 	// Esc followed quickly by a character key acts as Alt+key. Anything else
 	// is not a shortcut: deliver the held-back Esc, then handle the key.
@@ -617,6 +627,10 @@ func (m *WM) sendFocused(b []byte) {
 }
 
 func (m *WM) paste(text string) {
+	if m.ev.shown {
+		m.setStatus("not pasted: close the events window first", 3*time.Second)
+		return
+	}
 	if w := m.focused; w != nil && !w.closed && text != "" {
 		m.clearSelectionIn(w)
 		w.scroll = 0
@@ -676,6 +690,10 @@ func (m *WM) forwardMouse(w *Window, ev uv.MouseEvent) {
 
 func (m *WM) handleMouse(ev uv.MouseEvent) {
 	if m.cfg.DisableMouse {
+		return
+	}
+	if m.ev.shown {
+		m.eventsMouse(ev)
 		return
 	}
 	mo := ev.Mouse()
@@ -834,6 +852,7 @@ func (m *WM) handlePty(msg ptyMsg) {
 		}
 		logger.Info("window exited", "window", w.id, "background", w.background,
 			"program", w.displayTitle("process"), "status", status)
+		m.logEvent(w, evExit, status)
 		hadFocus := m.focused == w
 		m.remove(w)
 		if w.background {
@@ -843,6 +862,7 @@ func (m *WM) handlePty(msg ptyMsg) {
 	}
 	if err := w.feed(msg.data); err != nil {
 		m.setStatus(fmt.Sprintf("window %d: %v", m.number(w), err), 10*time.Second)
+		m.logEvent(w, evError, err.Error())
 	}
 	m.dirty = true
 }
@@ -927,6 +947,7 @@ func (m *WM) backgroundExited(hadFocus bool) {
 	focus := m.focused
 	if err := m.startBackground(); err != nil {
 		m.setStatus("background shell: "+err.Error(), 10*time.Second)
+		m.logEvent(nil, evError, "background shell: "+err.Error())
 		return
 	}
 	if hadFocus { // it was in use: the new shell takes over

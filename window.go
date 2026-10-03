@@ -65,6 +65,8 @@ type Window struct {
 	exited atomic.Bool // set by the goroutine that waits for the process
 
 	onClipboard func(osc []byte) // OSC 52 from the program ("52;c;<base64>")
+	// onEvent reports a bell or desktop notification (events.go).
+	onEvent func(kind eventKind, text string)
 
 	bgColor    color.Color // colors chosen with Alt+b (nil = terminal default)
 	fgColor    color.Color //
@@ -178,7 +180,22 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 		}
 		return true
 	})
+	// Desktop notifications (OSC 9, 777, 99) go to the events window.
+	for _, cmd := range []int{9, 777, 99} {
+		win.emu.RegisterOscHandler(cmd, func(data []byte) bool {
+			text, ok := parseNotification(data)
+			if ok && win.onEvent != nil {
+				win.onEvent(evNotify, text)
+			}
+			return true
+		})
+	}
 	win.emu.SetCallbacks(vt.Callbacks{
+		Bell: func() {
+			if win.onEvent != nil {
+				win.onEvent(evBell, "")
+			}
+		},
 		Title:            func(s string) { win.oscTitle = s },
 		WorkingDirectory: func(s string) { win.oscDir = parseOSC7(s) },
 		CursorVisibility: func(v bool) { win.cursorVisible = v },

@@ -104,6 +104,9 @@ func (m *WM) refreshIdent(w *Window) bool {
 	}
 	logger.Info("window identity changed", "window", w.id, "from", w.ident.label(true, true),
 		"to", id.label(true, true), "pid", pid)
+	if w.ident != (identity{}) { // not the first look
+		m.logEvent(w, evIdentity, w.ident.label(true, true)+" → "+id.label(true, true))
+	}
 	w.ident = id
 	return true
 }
