@@ -110,6 +110,12 @@ func (m *WM) refreshIdent(w *Window) bool {
 
 // startSSHIdent shows what the ssh command line says right away, and asks
 // "ssh -G" (in the background) for the user ssh will really log in as.
+//
+// "ssh -G" runs as goat's user with the other ssh's arguments, and reads
+// the configuration they name (-F); its "Match exec" lines run commands.
+// So it is used only for an ssh of goat's own user: for one of another
+// user (after su), those arguments are that user's to choose, and the
+// command line alone is shown.
 func (m *WM) startSSHIdent(w *Window, pid int, args []string) {
 	dest, user, upTo := parseSSHArgs(args)
 	w.sshPid = pid
@@ -119,8 +125,18 @@ func (m *WM) startSSHIdent(w *Window, pid int, args []string) {
 		w.sshIdent = m.localIdent()
 		return
 	}
+	ruid, euid, ok := processUIDs(pid)
+	own := ok && ruid == os.Getuid() && euid == os.Getuid()
 	if w.sshIdent.user == "" {
-		w.sshIdent.user = m.user // until ssh -G says otherwise (usually the same)
+		// Until ssh -G says otherwise: ssh's default is its own user.
+		w.sshIdent.user = m.user
+		if ok && !own {
+			w.sshIdent.user = m.userName(euid)
+		}
+	}
+	if !own {
+		logger.Debug("ssh of another user; not running ssh -G with its arguments", "window", w.id, "pid", pid)
+		return
 	}
 	out := m.identOut
 	go func() {
@@ -208,15 +224,21 @@ const sshOptsWithArg = "BbcDEeFIiJLlmOopQRSWw"
 
 // parseSSHArgs finds the destination in ssh's arguments. It returns the
 // host as typed, the user given with user@host or -l (else ""), and the
-// arguments up to and including the destination (for "ssh -G").
-func parseSSHArgs(args []string) (host, user string, upTo []string) {
+// arguments for "ssh -G": only the login name (-l, -o User=), the port
+// (-p, -o Port=) and the destination. Nothing else is passed on: options
+// such as -F, -o Include= or -J would make "ssh -G" read configuration
+// files the ssh's arguments name, and their "Match exec" lines run
+// commands, as goat's user. (Those arguments can be chosen by a sandboxed
+// program of the same user, or rewritten in /proc by the process itself.)
+func parseSSHArgs(args []string) (host, user string, resolve []string) {
 	loginFlag := ""
+	var safe []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
 			if i+1 < len(args) {
 				host, user = splitSSHDest(args[i+1])
-				upTo = args[:i+2]
+				resolve = append(safe, "--", args[i+1])
 			}
 			break
 		}
@@ -230,21 +252,29 @@ func parseSSHArgs(args []string) (host, user string, upTo []string) {
 					i++
 					val = args[i]
 				}
-				if a[j] == 'l' {
+				switch a[j] {
+				case 'l':
 					loginFlag = val
+					safe = append(safe, "-l", val)
+				case 'p':
+					safe = append(safe, "-p", val)
+				case 'o':
+					if k, _, _ := strings.Cut(strings.ReplaceAll(val, " ", "="), "="); strings.EqualFold(k, "user") || strings.EqualFold(k, "port") {
+						safe = append(safe, "-o", val)
+					}
 				}
 				break
 			}
 			continue
 		}
 		host, user = splitSSHDest(a)
-		upTo = args[:i+1]
+		resolve = append(safe, a)
 		break
 	}
 	if user == "" {
 		user = loginFlag
 	}
-	return cleanHostName(host), cleanHostName(user), upTo
+	return cleanHostName(host), cleanHostName(user), resolve
 }
 
 // splitSSHDest splits "[user@]host" or "ssh://[user@]host[:port]".
@@ -279,6 +309,8 @@ func splitSSHDest(d string) (host, user string) {
 func sshConfig(ctx context.Context, args []string) (user, host string, err error) {
 	cmd := exec.CommandContext(ctx, "ssh", append([]string{"-G"}, args...)...)
 	cmd.Stdin = nil
+	// Don't wait past the timeout for a child that keeps ssh's output open.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
 		return "", "", err

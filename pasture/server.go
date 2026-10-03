@@ -34,6 +34,8 @@ type Server struct {
 	log  *slog.Logger
 	ln   *net.UnixListener
 	lock *os.File
+	// histLock keeps other servers out of the history directory.
+	histLock *os.File
 
 	panes    map[int]*pane
 	clients  map[*client]bool
@@ -94,8 +96,13 @@ func NewServer(cfg Config) (*Server, error) {
 	// kill $(cat <socket>.lock)
 	_ = lock.Truncate(0)
 	_, _ = lock.WriteAt([]byte(fmt.Sprintf("%d\n", os.Getpid())), 0)
-	// We hold the lock, so an existing socket file is stale.
-	if _, err := os.Lstat(s.sock); err == nil {
+	// We hold the lock, so an existing socket file is stale. Anything else
+	// there is not ours to delete.
+	if fi, err := os.Lstat(s.sock); err == nil {
+		if fi.Mode().Type() != os.ModeSocket {
+			lock.Close()
+			return nil, fmt.Errorf("%s exists and is not a socket", s.sock)
+		}
 		log.Warn("removing stale socket", "socket", s.sock)
 		if err := os.Remove(s.sock); err != nil {
 			lock.Close()
@@ -112,10 +119,12 @@ func NewServer(cfg Config) (*Server, error) {
 	s.ln, s.lock = ln, lock
 	s.histCfg = cfg.History
 	if s.histCfg.Dir != "" && s.histCfg.MaxBytes > 0 {
-		if err := prepareHistoryDir(s.histCfg.Dir, log); err != nil {
+		hl, err := prepareHistoryDir(s.histCfg.Dir, log)
+		if err != nil {
 			log.Warn("history on disk disabled", "dir", s.histCfg.Dir, "err", err)
 			s.histCfg.Dir = ""
 		}
+		s.histLock = hl
 	}
 	if s.histCfg.Dir != "" && s.histCfg.MaxBytes > 0 {
 		log.Info("history on disk", "dir", s.histCfg.Dir, "max_bytes_per_pane", s.histCfg.MaxBytes)
@@ -134,11 +143,17 @@ func (s *Server) Shutdown(reason string) {
 	s.stopOnce.Do(func() { s.stop <- reason })
 }
 
-// Serve runs the server until Shutdown, SIGTERM or SIGINT. SIGHUP and
-// SIGPIPE are ignored here (a caller may use SIGHUP, e.g. to reopen logs).
+// Serve runs the server until Shutdown, SIGTERM or SIGINT. SIGHUP is left
+// to the caller (e.g. to reopen logs).
 func (s *Server) Serve() error {
 	defer close(s.done)
-	signal.Ignore(syscall.SIGPIPE)
+	// A write to a broken pipe (a log on a closed stderr) must not kill the
+	// server. The signal is caught, not ignored: an ignored signal stays
+	// ignored in the programs we start, and "yes | head" would then fail
+	// with EPIPE instead of ending quietly.
+	pipes := make(chan os.Signal, 1)
+	signal.Notify(pipes, syscall.SIGPIPE)
+	defer signal.Stop(pipes)
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(sigs)
@@ -203,10 +218,42 @@ func (s *Server) shutdown(reason string) {
 	for c := range s.clients {
 		c.waitFlushed(time.Until(deadline))
 	}
+	s.reapAll()
+	if s.histLock != nil {
+		_ = s.histLock.Close()
+	}
 	_ = os.Remove(s.sock)
-	_ = os.Remove(s.sock + ".lock")
+	// The lock file stays: deleting it would let a server starting now lock
+	// the deleted file while another creates a new one, and both would run.
+	_ = s.lock.Truncate(0)
 	_ = s.lock.Close()
 	s.log.Info("server stopped")
+}
+
+// reapAll waits up to killGrace for the hung-up programs to end, and
+// kills the rest: their kill timers would not outlive the server.
+func (s *Server) reapAll() {
+	deadline := time.Now().Add(killGrace)
+	for {
+		var left []*pane
+		for _, p := range s.panes {
+			if !p.exited.Load() {
+				left = append(left, p)
+			}
+		}
+		if len(left) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			for _, p := range left {
+				_ = syscall.Kill(-p.pid, syscall.SIGKILL)
+				_ = syscall.Kill(p.pid, syscall.SIGKILL)
+				s.log.Warn("program ignored the hangup; killed", "pane", p.id, "pid", p.pid)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func (s *Server) accept() {
@@ -263,6 +310,9 @@ func (s *Server) handlePaneEvent(ev paneEvent) {
 		"bytes_out", p.bytesOut, "bytes_in", p.bytesIn, "ran", time.Since(p.created).Round(time.Millisecond))
 	if len(p.clients) > 0 {
 		for c := range p.clients {
+			if a := c.attached[p]; a != nil {
+				a.end()
+			}
 			c.send(encodeJSON(msgExit, ExitEvent{Pane: p.id, Status: ev.status}))
 			delete(c.attached, p)
 		}
@@ -311,6 +361,9 @@ func (s *Server) attach(c *client, p *pane) {
 }
 
 func (s *Server) detach(c *client, p *pane) {
+	if a := c.attached[p]; a != nil {
+		a.end()
+	}
 	delete(p.clients, c)
 	delete(c.attached, p)
 	if len(p.clients) == 0 {
@@ -363,7 +416,7 @@ func (s *Server) handleClientMsg(m clientMsg) {
 			return
 		}
 		start := time.Now()
-		resp, after := s.handleRequest(c, &r)
+		resp, after := s.handleRequestSafely(c, &r)
 		resp.ID = r.ID
 		c.send(encodeJSON(msgResponse, resp))
 		if after != nil {
@@ -427,6 +480,19 @@ func (s *Server) handleClientMsg(m clientMsg) {
 	default:
 		s.dropClient(c, fmt.Sprintf("unexpected frame type %d", m.typ))
 	}
+}
+
+// handleRequestSafely is handleRequest, answering with an error if it
+// panics: the client waits for an answer to every request.
+func (s *Server) handleRequestSafely(c *client, r *Request) (resp Response, after func()) {
+	defer func() {
+		if v := recover(); v != nil {
+			s.log.Error("panic handling a request", "op", r.Op, "pane", r.Pane, "panic", fmt.Sprint(v),
+				"stack", string(debug.Stack()))
+			resp, after = Response{Error: fmt.Sprintf("internal error handling %q: %v", r.Op, v)}, nil
+		}
+	}()
+	return s.handleRequest(c, r)
 }
 
 // handleRequest runs a request. The optional function runs after the
@@ -528,7 +594,8 @@ func (s *Server) handleRequest(c *client, r *Request) (Response, func()) {
 		if r.Signal <= 0 || r.Signal > 64 {
 			return fail(fmt.Errorf("bad signal %d", r.Signal))
 		}
-		if p.closed {
+		if p.closed || p.exited.Load() {
+			// (once reaped, its pid may already belong to another process)
 			return fail(fmt.Errorf("pane %d has exited", p.id))
 		}
 		// The foreground process group (e.g. the program running in the

@@ -61,21 +61,29 @@ func foregroundDir(ptmx *os.File, cmd *exec.Cmd) string {
 
 // processEUID is the effective user id of pid (from /proc/<pid>/status).
 func processEUID(pid int) (int, bool) {
+	_, euid, ok := processUIDs(pid)
+	return euid, ok
+}
+
+// processUIDs is the real and effective user id of pid.
+func processUIDs(pid int) (ruid, euid int, ok bool) {
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
-		return 0, false
+		return 0, 0, false
 	}
 	for _, line := range strings.Split(string(b), "\n") {
-		if rest, ok := strings.CutPrefix(line, "Uid:"); ok {
+		if rest, found := strings.CutPrefix(line, "Uid:"); found {
 			f := strings.Fields(rest) // real, effective, saved, filesystem
 			if len(f) >= 2 {
-				if uid, err := strconv.Atoi(f[1]); err == nil {
-					return uid, true
+				r, err1 := strconv.Atoi(f[0])
+				e, err2 := strconv.Atoi(f[1])
+				if err1 == nil && err2 == nil {
+					return r, e, true
 				}
 			}
 		}
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 // processArgs is the command line of pid.

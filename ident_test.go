@@ -18,9 +18,11 @@ func TestParseSSHArgs(t *testing.T) {
 		{[]string{"example.org"}, "example.org", "", []string{"example.org"}},
 		{[]string{"bob@example.org", "uptime"}, "example.org", "bob", []string{"bob@example.org"}},
 		{[]string{"-p", "2222", "-l", "bob", "box", "ls", "-l"}, "box", "bob", []string{"-p", "2222", "-l", "bob", "box"}},
-		{[]string{"-lbob", "-4A", "-i", "~/.ssh/k", "box"}, "box", "bob", []string{"-lbob", "-4A", "-i", "~/.ssh/k", "box"}},
-		{[]string{"-J", "jump@bastion", "alice@inner"}, "inner", "alice", []string{"-J", "jump@bastion", "alice@inner"}},
+		{[]string{"-lbob", "-4A", "-i", "~/.ssh/k", "box"}, "box", "bob", []string{"-l", "bob", "box"}},
+		{[]string{"-J", "jump@bastion", "alice@inner"}, "inner", "alice", []string{"alice@inner"}},
 		{[]string{"-o", "User=x", "--", "h"}, "h", "", []string{"-o", "User=x", "--", "h"}},
+		// Options that name configuration to read are not passed on.
+		{[]string{"-F", "/tmp/evil.cfg", "-oInclude=/tmp/x", "-o", "Port 2200", "-E", "log", "h"}, "h", "", []string{"-o", "Port 2200", "h"}},
 		{[]string{"ssh://carol@db.example:2200"}, "db.example", "carol", []string{"ssh://carol@db.example:2200"}},
 		{[]string{"ssh://[fe80::1]:22"}, "fe80::1", "", []string{"ssh://[fe80::1]:22"}},
 		{[]string{"-V"}, "", "", nil},
@@ -141,5 +143,81 @@ func TestLocalHostRecheck(t *testing.T) {
 	}
 	if m.refreshLocalIdent(now.Add(3 * hostRecheckEvery)) {
 		t.Fatal("reported a change without one")
+	}
+}
+
+// "ssh -G" (which reads the configuration named by -F, and runs its "Match
+// exec" commands) is never run with the arguments of another user's ssh:
+// after su, those are that user's to choose, and goat would run them as
+// itself.
+func TestNoSSHConfigForAnotherUsersSSH(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs /proc")
+	}
+	if os.Getuid() != 0 {
+		t.Skip("needs root, to run a process as another user")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("needs bash")
+	}
+	py, err := findPython()
+	if err != nil {
+		t.Skip("needs python3")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ran := filepath.Join(dir, "ssh-G-ran")
+	fake := "#!/bin/sh\n[ \"$1\" = -G ] && { touch " + ran + "; echo 'user alice'; echo 'hostname 10.1.2.3'; exit 0; }\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	// The window's program becomes uid 65534 and then shows up as
+	// "ssh -F <its config> -p 2222 box.example".
+	code := "import os; os.setgroups([]); os.setgid(65534); os.setuid(65534); " +
+		"os.execv('" + py + "', ['ssh', '-c', 'import time; time.sleep(30)', '-F', '/tmp/evil.cfg', '-p', '2222', 'box.example'])"
+	script := filepath.Join(dir, "run.sh")
+	if err := os.WriteFile(script, []byte("exec "+py+" -c \""+code+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultConfig()
+	m := newWM(cfg, nil, 80, 24)
+	m.identOn, m.user, m.host = true, "me", "local-box"
+	m.hostChecked = time.Now().Add(time.Hour)
+	w, err := newWindow(1, "/bin/bash "+script, 0, 0, 40, 10, winOpts{}, m.out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.windows = []*Window{w}
+	defer m.closeAll()
+
+	want := m.userName(65534) + "@box.example" // ssh's own user, host as typed
+	seen := time.Time{}
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		m.tick(time.Now())
+		for drained := false; !drained; {
+			select {
+			case msg := <-m.identOut:
+				m.handleIdent(msg)
+			case <-m.out:
+			default:
+				drained = true
+			}
+		}
+		if m.frameLabel(w) == want && seen.IsZero() {
+			seen = time.Now()
+		}
+		if !seen.IsZero() && time.Since(seen) > time.Second {
+			break // shown, and given ssh -G time to have run if it would
+		}
+	}
+	if got := m.frameLabel(w); got != want {
+		t.Errorf("frame label %q, want %q", got, want)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("ssh -G was run with another user's ssh arguments")
 	}
 }

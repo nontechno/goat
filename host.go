@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unicode"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -34,11 +35,19 @@ func hostLabel(home string) (name, source string) {
 // readHostFile returns the cleaned first line of path ("" if the file is
 // missing, unreadable or its first line is blank).
 func readHostFile(path string) string {
-	f, err := os.Open(path)
+	// Only a regular file, opened without blocking: a FIFO (or a device)
+	// there would otherwise stop goat's event loop on open or read.
+	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return "" // replaced between the two checks
+	}
 	// Read at most 4 KB: the first line is all that's wanted, and a huge or
 	// odd file (a device, a binary) mustn't stall startup.
 	sc := bufio.NewScanner(bufio.NewReaderSize(f, 4096))

@@ -71,7 +71,11 @@ type pane struct {
 	// ahead holds a token per chunk read from the PTY and not yet handled
 	// by the loop: the reader can't run more than readAhead chunks ahead,
 	// so a pause takes effect promptly.
-	ahead    chan struct{}
+	ahead chan struct{}
+	// stalled is set while the reader waits on the server (paused, or the
+	// loop behind) rather than on the program: that time doesn't count
+	// toward the exit-drain deadline.
+	stalled  atomic.Bool
 	pausedAt time.Time
 	pauses   int
 	dropped  int // emulator replies dropped (queue full)
@@ -150,7 +154,7 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 	}
 	// A bare program name is looked up in the PATH the client sent, not the
 	// server's own (under systemd the server's PATH is minimal).
-	path, err := lookPath(sp.argv[0], sp.env)
+	path, err := lookPath(sp.argv[0], sp.env, sp.dir)
 	if err != nil {
 		return nil, fmt.Errorf("spawn: %w", err)
 	}
@@ -220,6 +224,7 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 		defer close(readDone)
 		buf := make([]byte, 32*1024)
 		for {
+			p.stalled.Store(true)
 			if !p.gate.wait() { // paused while a client is behind (flow.go)
 				return
 			}
@@ -228,8 +233,10 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 			case <-s.done:
 				return
 			}
+			p.stalled.Store(false)
 			n, err := p.ptmx.Read(buf)
 			if n > 0 {
+				p.stalled.Store(true)
 				select {
 				case s.paneEvents <- paneEvent{p: p, data: append([]byte(nil), buf[:n]...)}:
 				case <-s.done:
@@ -254,8 +261,9 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 		err := cmd.Wait()
 		p.exited.Store(true)
 		status := exitStatus(err)
-		// Time spent paused by flow control doesn't count: that output
-		// is still to be read and delivered.
+		// Time the reader spends held up by the server (flow control, or
+		// a busy loop) doesn't count: that output is still to be read and
+		// delivered.
 		tick := time.NewTicker(exitOutputDeadline / 10)
 		defer tick.Stop()
 		for waited := time.Duration(0); waited < exitOutputDeadline; {
@@ -263,7 +271,7 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 			case <-readDone:
 				waited = exitOutputDeadline
 			case <-tick.C:
-				if !p.gate.isPaused() {
+				if !p.stalled.Load() {
 					waited += exitOutputDeadline / 10
 				}
 			}
@@ -273,7 +281,10 @@ func (s *Server) spawn(sp spawnSpec) (*pane, error) {
 		default:
 			log.Debug("output still open after exit (a child keeps the pty); not waiting")
 		}
-		s.paneEvents <- paneEvent{p: p, exited: true, status: status}
+		select {
+		case s.paneEvents <- paneEvent{p: p, exited: true, status: status}:
+		case <-s.done:
+		}
 	}()
 	return p, nil
 }
@@ -297,9 +308,15 @@ func (p *pane) setMode(m ansi.Mode, on bool) {
 	p.modes[modeKey{dec: dec, n: m.Mode()}] = on
 }
 
+// feedDelay slows down feed, to test a busy server (0 outside tests).
+var feedDelay atomic.Int64
+
 // feed passes output to the emulator. A panic in the emulator is logged
 // and resets that pane's terminal instead of ending the server.
 func (s *Server) feed(p *pane, data []byte) {
+	if d := feedDelay.Load(); d > 0 {
+		time.Sleep(time.Duration(d))
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			s.log.Error("emulator panic; pane terminal reset", "pane", p.id, "panic", fmt.Sprint(r),
@@ -481,7 +498,42 @@ func renderLine(l uv.Line) string {
 	if l == nil {
 		return ""
 	}
-	return uv.TrimSpace(l.Render())
+	return uv.TrimSpace(limitLinks(l).Render())
+}
+
+// lineLinkBytes bounds the hyperlink targets written for one line.
+const lineLinkBytes = 16 << 10
+
+// limitLinks drops the hyperlinks of l beyond lineLinkBytes (the text
+// stays). Rendering writes a link's whole target each time a run of linked
+// cells starts, so one long URL over many short runs (alternate linked and
+// blank cells) would turn a few hundred bytes of output into megabytes per
+// line. l is not modified; a copy is returned if anything is dropped.
+func limitLinks(l uv.Line) uv.Line {
+	used := 0
+	var prev uv.Link
+	var out uv.Line
+	for i := range l {
+		lk := l[i].Link
+		if lk == (uv.Link{}) { // (a link with only parameters is written too)
+			prev = lk
+			continue
+		}
+		if lk != prev {
+			used += len(lk.URL) + len(lk.Params) + 16
+		}
+		prev = lk
+		if used > lineLinkBytes {
+			if out == nil {
+				out = append(uv.Line(nil), l...)
+			}
+			out[i].Link = uv.Link{}
+		}
+	}
+	if out == nil {
+		return l
+	}
+	return out
 }
 
 // sanitizeTitle drops control characters, so a title can't end the OSC
@@ -506,9 +558,17 @@ func (l vtLogger) Printf(format string, v ...any) {
 }
 
 // lookPath finds an executable like a shell would, using the PATH in env
-// (or a default PATH if env has none). A name containing "/" is used as is.
-func lookPath(name string, env []string) (string, error) {
+// (or a default PATH if env has none). A name containing "/" is used as is,
+// relative to dir (where the program starts), not to the server's
+// directory.
+func lookPath(name string, env []string, dir string) (string, error) {
 	if strings.Contains(name, "/") {
+		if !filepath.IsAbs(name) {
+			if dir == "" {
+				dir = "/"
+			}
+			name = filepath.Join(dir, name)
+		}
 		if err := isExecutable(name); err != nil {
 			return "", fmt.Errorf("%s: %w", name, err)
 		}

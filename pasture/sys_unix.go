@@ -58,9 +58,11 @@ func checkPeer(c net.Conn) error {
 
 // pollable returns a non-blocking duplicate of f, so that closing it wakes a
 // goroutine blocked in Read (the Go runtime poller only manages
-// non-blocking descriptors).
+// non-blocking descriptors). The duplicate is close-on-exec, like every
+// descriptor Go opens: otherwise every program started later would inherit
+// this PTY's master (could read and type into it, and keep it open).
 func pollable(f *os.File) *os.File {
-	fd, err := syscall.Dup(int(f.Fd()))
+	fd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 0)
 	if err != nil {
 		return f
 	}

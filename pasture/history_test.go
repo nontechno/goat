@@ -113,12 +113,29 @@ func TestPrepareHistoryDirRemovesStaleFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "3-1.log"), []byte("old\n"), 0o600)
-	if err := prepareHistoryDir(dir, slog.New(slog.NewTextHandler(discard{}, nil))); err != nil {
+	log := slog.New(slog.NewTextHandler(discard{}, nil))
+	lock, err := prepareHistoryDir(dir, log)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if files, _ := filepath.Glob(filepath.Join(dir, "*")); len(files) != 0 {
+	if files, _ := filepath.Glob(filepath.Join(dir, "*.log")); len(files) != 0 {
 		t.Fatalf("stale files kept: %v", files)
 	}
+	// A second server can't use (and clean) the same directory.
+	_ = os.WriteFile(filepath.Join(dir, "1-1.log"), []byte("live\n"), 0o600)
+	if l2, err := prepareHistoryDir(dir, log); err == nil {
+		l2.Close()
+		t.Fatal("history directory shared by two servers")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "1-1.log")); err != nil {
+		t.Fatal("a running server's history file was removed")
+	}
+	lock.Close()
+	l3, err := prepareHistoryDir(dir, log)
+	if err != nil {
+		t.Fatalf("lock not released: %v", err)
+	}
+	l3.Close()
 }
 
 // End to end: a pane keeps 100 lines in memory; the rest goes to disk, and

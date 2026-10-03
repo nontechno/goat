@@ -1,0 +1,196 @@
+# Light background terminal color pairs
+palette = "standard xterm 256-color ANSI palette"
+contrast_metric = "WCAG relative luminance ratio"
+minimum_contrast_ratio = 7.0
+
+[[pairs]]
+name = "Cream Navy"
+background = { ansi = 230, hex = "#ffffd7" }
+foreground = { ansi = 18, hex = "#000087" }
+contrast_ratio = 15.21
+
+[[pairs]]
+name = "Mint Charcoal"
+background = { ansi = 194, hex = "#d7ffd7" }
+foreground = { ansi = 235, hex = "#262626" }
+contrast_ratio = 13.82
+
+[[pairs]]
+name = "Pale Blue Ink"
+background = { ansi = 195, hex = "#d7ffff" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 16.85
+
+[[pairs]]
+name = "Rose Burgundy"
+background = { ansi = 224, hex = "#ffd7d7" }
+foreground = { ansi = 52, hex = "#5f0000" }
+contrast_ratio = 10.73
+
+[[pairs]]
+name = "Lilac Aubergine"
+background = { ansi = 225, hex = "#ffd7ff" }
+foreground = { ansi = 53, hex = "#5f005f" }
+contrast_ratio = 9.94
+
+[[pairs]]
+name = "Sand Navy"
+background = { ansi = 223, hex = "#ffd7af" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 13.38
+
+[[pairs]]
+name = "Lemon Slate"
+background = { ansi = 228, hex = "#ffff87" }
+foreground = { ansi = 238, hex = "#444444" }
+contrast_ratio = 9.23
+
+[[pairs]]
+name = "Sky Cobalt"
+background = { ansi = 153, hex = "#afd7ff" }
+foreground = { ansi = 19, hex = "#0000af" }
+contrast_ratio = 8.64
+
+[[pairs]]
+name = "Peach Burgundy"
+background = { ansi = 216, hex = "#ffaf87" }
+foreground = { ansi = 52, hex = "#5f0000" }
+contrast_ratio = 7.89
+
+[[pairs]]
+name = "Seafoam Aubergine"
+background = { ansi = 121, hex = "#87ffaf" }
+foreground = { ansi = 53, hex = "#5f005f" }
+contrast_ratio = 10.26
+
+[[pairs]]
+name = "Apricot Navy"
+background = { ansi = 222, hex = "#ffd787" }
+foreground = { ansi = 18, hex = "#000087" }
+contrast_ratio = 11.35
+
+[[pairs]]
+name = "Cloud Plum"
+background = { ansi = 255, hex = "#eeeeee" }
+foreground = { ansi = 54, hex = "#5f0087" }
+contrast_ratio = 9.86
+
+[[pairs]]
+name = "Silver Indigo"
+background = { ansi = 251, hex = "#c6c6c6" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 10.55
+
+[[pairs]]
+name = "Pink Midnight"
+background = { ansi = 218, hex = "#ffafd7" }
+foreground = { ansi = 18, hex = "#000087" }
+contrast_ratio = 9.16
+
+[[pairs]]
+name = "Aqua Maroon"
+background = { ansi = 159, hex = "#afffff" }
+foreground = { ansi = 52, hex = "#5f0000" }
+contrast_ratio = 12.49
+
+[[pairs]]
+name = "Warm Gray Burgundy"
+background = { ansi = 250, hex = "#bcbcbc" }
+foreground = { ansi = 52, hex = "#5f0000" }
+contrast_ratio = 7.44
+
+[[pairs]]
+name = "Emerald Ink"
+background = { ansi = 35, hex = "#00af5f" }
+foreground = { ansi = 16, hex = "#000000" }
+contrast_ratio = 7.30
+
+[[pairs]]
+name = "Azure Ink"
+background = { ansi = 39, hex = "#00afff" }
+foreground = { ansi = 16, hex = "#000000" }
+contrast_ratio = 8.58
+
+[[pairs]]
+name = "Jade Burgundy"
+background = { ansi = 41, hex = "#00d75f" }
+foreground = { ansi = 52, hex = "#5f0000" }
+contrast_ratio = 7.32
+
+[[pairs]]
+name = "Cerulean Indigo"
+background = { ansi = 75, hex = "#5fafff" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 7.78
+
+[[pairs]]
+name = "Sage Indigo"
+background = { ansi = 108, hex = "#87af87" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 7.30
+
+[[pairs]]
+name = "Spring Burgundy"
+background = { ansi = 114, hex = "#87d787" }
+foreground = { ansi = 52, hex = "#5f0000" }
+contrast_ratio = 8.14
+
+[[pairs]]
+name = "Lavender Ink"
+background = { ansi = 141, hex = "#af87ff" }
+foreground = { ansi = 16, hex = "#000000" }
+contrast_ratio = 7.73
+
+[[pairs]]
+name = "Periwinkle Ink"
+background = { ansi = 147, hex = "#afafff" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 8.92
+
+[[pairs]]
+name = "Pistachio Wine"
+background = { ansi = 151, hex = "#afd7af" }
+foreground = { ansi = 52, hex = "#5f0000" }
+contrast_ratio = 8.85
+
+[[pairs]]
+name = "Orchid Indigo"
+background = { ansi = 176, hex = "#d787d7" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 7.15
+
+[[pairs]]
+name = "Tan Indigo"
+background = { ansi = 180, hex = "#d7af87" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 8.90
+
+[[pairs]]
+name = "Oat Navy"
+background = { ansi = 187, hex = "#d7d7af" }
+foreground = { ansi = 18, hex = "#000087" }
+contrast_ratio = 10.54
+
+[[pairs]]
+name = "Tangerine Indigo"
+background = { ansi = 208, hex = "#ff8700" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 7.48
+
+[[pairs]]
+name = "Candy Pink Indigo"
+background = { ansi = 211, hex = "#ff87af" }
+foreground = { ansi = 17, hex = "#00005f" }
+contrast_ratio = 8.01
+
+[[pairs]]
+name = "Fuchsia Navy"
+background = { ansi = 213, hex = "#ff87ff" }
+foreground = { ansi = 18, hex = "#000087" }
+contrast_ratio = 7.53
+
+[[pairs]]
+name = "Pewter Ink"
+background = { ansi = 247, hex = "#9e9e9e" }
+foreground = { ansi = 16, hex = "#000000" }
+contrast_ratio = 7.84

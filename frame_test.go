@@ -136,3 +136,55 @@ func TestBoxResizeIsRelative(t *testing.T) {
 		t.Fatalf("corner: %dx%d", w.w, w.h)
 	}
 }
+
+// An inactive window's "number:title" keeps the focused look (color, bold);
+// only its border fades. In every frame style, and for pinned windows.
+func TestInactiveTitleNotFaded(t *testing.T) {
+	for _, f := range []frameStyle{frameFull, frameCompact, frameNone} {
+		for _, pinned := range []bool{false, true} {
+			cfg := DefaultConfig()
+			m := newWM(cfg, nil, 40, 12)
+			a := fakeFramed(1, 0, 0, 18, 6, true, f)
+			b := fakeFramed(2, 20, 0, 18, 6, true, f)
+			b.pinned = pinned
+			m.windows, m.focused = []*Window{a, b}, a
+			scr := uv.NewScreen(m.cols, m.rows)
+			scr.Clear()
+			scene{m}.Draw(scr, scr.Bounds())
+
+			titleRow := 0
+			if f == frameFull {
+				titleRow = 1
+			}
+			// The title cell of each window: its number.
+			find := func(w *Window, digit string) *uv.Cell {
+				for x := w.x; x < w.x+w.w; x++ {
+					if c := scr.CellAt(x, titleRow); c != nil && c.Content == digit {
+						return c
+					}
+				}
+				t.Fatalf("%v: title of window %s not found", f, digit)
+				return nil
+			}
+			wantTitle := cfg.Theme.FocusedBorder.C
+			if pinned {
+				wantTitle = cfg.Theme.PinnedBorder.C
+			}
+			ta, tb := find(a, "1"), find(b, "2")
+			if ta.Style.Fg != cfg.Theme.FocusedBorder.C || ta.Style.Attrs&uv.AttrBold == 0 {
+				t.Errorf("%v: focused title style %+v", f, ta.Style)
+			}
+			if tb.Style.Fg != wantTitle || tb.Style.Attrs&uv.AttrBold == 0 {
+				t.Errorf("%v pinned=%v: inactive title faded: %+v", f, pinned, tb.Style)
+			}
+			// The inactive border still fades (or shows pinned).
+			wantBorder := cfg.Theme.UnfocusedBorder.C
+			if pinned {
+				wantBorder = cfg.Theme.PinnedBorder.C
+			}
+			if c := scr.CellAt(b.x, 0); c == nil || c.Style.Fg != wantBorder || c.Style.Attrs&uv.AttrBold != 0 {
+				t.Errorf("%v pinned=%v: inactive border %+v", f, pinned, c)
+			}
+		}
+	}
+}

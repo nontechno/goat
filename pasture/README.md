@@ -56,8 +56,10 @@ kill -HUP "$(cat /tmp/pasture-$(id -u)/default.lock)" # reopen the log (logrotat
 ```
 
 SIGTERM or SIGINT stops the server cleanly. Every program gets SIGHUP, and
-SIGKILL 3 s later if it is still running. The socket, lock and pid are then
-removed. Stopping the server ends every program running on it.
+SIGKILL 3 s later if it is still running; the server waits for that before
+it exits. The socket is then removed, and the lock file emptied (it stays,
+so a server starting at that moment can't end up running beside another).
+Stopping the server ends every program running on it.
 
 ### As a service
 

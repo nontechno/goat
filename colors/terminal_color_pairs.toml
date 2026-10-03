@@ -5,384 +5,448 @@ minimum_contrast_ratio = 7.0
 
 [[pairs]]
 name = "Midnight Gold"
+dark = true
 background = { ansi = 17, hex = "#00005f" }
 foreground = { ansi = 220, hex = "#ffd700" }
 contrast_ratio = 12.85
 
 [[pairs]]
 name = "Ocean Foam"
+dark = true
 background = { ansi = 24, hex = "#005f87" }
 foreground = { ansi = 231, hex = "#ffffff" }
 contrast_ratio = 7.03
 
 [[pairs]]
 name = "Forest Cream"
+dark = true
 background = { ansi = 22, hex = "#005f00" }
 foreground = { ansi = 230, hex = "#ffffd7" }
 contrast_ratio = 7.79
 
 [[pairs]]
 name = "Plum Pearl"
+dark = true
 background = { ansi = 54, hex = "#5f0087" }
 foreground = { ansi = 225, hex = "#ffd7ff" }
 contrast_ratio = 8.94
 
 [[pairs]]
 name = "Charcoal Mint"
+dark = true
 background = { ansi = 235, hex = "#262626" }
 foreground = { ansi = 121, hex = "#87ffaf" }
 contrast_ratio = 12.22
 
 [[pairs]]
 name = "Ink Coral"
+dark = true
 background = { ansi = 233, hex = "#121212" }
 foreground = { ansi = 217, hex = "#ffafaf" }
 contrast_ratio = 10.71
 
 [[pairs]]
 name = "Deep Teal Ivory"
+dark = true
 background = { ansi = 23, hex = "#005f5f" }
 foreground = { ansi = 230, hex = "#ffffd7" }
 contrast_ratio = 7.33
 
 [[pairs]]
 name = "Burgundy Rose"
+dark = true
 background = { ansi = 52, hex = "#5f0000" }
 foreground = { ansi = 224, hex = "#ffd7d7" }
 contrast_ratio = 10.73
 
 [[pairs]]
 name = "Cobalt Ice"
+dark = true
 background = { ansi = 19, hex = "#0000af" }
 foreground = { ansi = 195, hex = "#d7ffff" }
 contrast_ratio = 12.13
 
 [[pairs]]
 name = "Slate Lemon"
+dark = true
 background = { ansi = 238, hex = "#444444" }
 foreground = { ansi = 228, hex = "#ffff87" }
 contrast_ratio = 9.23
 
 [[pairs]]
 name = "Mulberry Sky"
+dark = true
 background = { ansi = 53, hex = "#5f005f" }
 foreground = { ansi = 195, hex = "#d7ffff" }
 contrast_ratio = 11.89
 
 [[pairs]]
 name = "Grape Lime"
+dark = true
 background = { ansi = 55, hex = "#5f00af" }
 foreground = { ansi = 194, hex = "#d7ffd7" }
 contrast_ratio = 9.11
 
 [[pairs]]
 name = "Garnet Ivory"
+dark = true
 background = { ansi = 88, hex = "#870000" }
 foreground = { ansi = 230, hex = "#ffffd7" }
 contrast_ratio = 10.12
 
 [[pairs]]
 name = "Violet Cream"
+dark = true
 background = { ansi = 90, hex = "#870087" }
 foreground = { ansi = 230, hex = "#ffffd7" }
 contrast_ratio = 8.63
 
 [[pairs]]
 name = "Near Black Lavender"
+dark = true
 background = { ansi = 234, hex = "#1c1c1c" }
 foreground = { ansi = 183, hex = "#d7afff" }
 contrast_ratio = 9.30
 
 [[pairs]]
 name = "Sapphire Blush"
+dark = true
 background = { ansi = 18, hex = "#000087" }
 foreground = { ansi = 225, hex = "#ffd7ff" }
 contrast_ratio = 12.16
 
 [[pairs]]
 name = "Obsidian Amber"
+dark = true
 background = { ansi = 16, hex = "#000000" }
 foreground = { ansi = 214, hex = "#ffaf00" }
 contrast_ratio = 11.38
 
 [[pairs]]
 name = "Electric Blue Ivory"
+dark = true
 background = { ansi = 20, hex = "#0000d7" }
 foreground = { ansi = 230, hex = "#ffffd7" }
 contrast_ratio = 10.37
 
 [[pairs]]
 name = "Ultramarine Snow"
+dark = true
 background = { ansi = 21, hex = "#0000ff" }
 foreground = { ansi = 231, hex = "#ffffff" }
 contrast_ratio = 8.59
 
 [[pairs]]
 name = "Indigo Lemon"
+dark = true
 background = { ansi = 56, hex = "#5f00d7" }
 foreground = { ansi = 228, hex = "#ffff87" }
 contrast_ratio = 8.07
 
 [[pairs]]
 name = "Electric Violet White"
+dark = true
 background = { ansi = 57, hex = "#5f00ff" }
 foreground = { ansi = 231, hex = "#ffffff" }
 contrast_ratio = 7.17
 
 [[pairs]]
 name = "Raspberry Vanilla"
+dark = true
 background = { ansi = 89, hex = "#87005f" }
 foreground = { ansi = 230, hex = "#ffffd7" }
 contrast_ratio = 9.35
 
 [[pairs]]
 name = "Orchid Ice"
+dark = true
 background = { ansi = 91, hex = "#8700af" }
 foreground = { ansi = 195, hex = "#d7ffff" }
 contrast_ratio = 7.41
 
 [[pairs]]
 name = "Crimson White"
+dark = true
 background = { ansi = 124, hex = "#af0000" }
 foreground = { ansi = 231, hex = "#ffffff" }
 contrast_ratio = 7.44
 
 [[pairs]]
 name = "Berry White"
+dark = true
 background = { ansi = 125, hex = "#af005f" }
 foreground = { ansi = 231, hex = "#ffffff" }
 contrast_ratio = 7.03
 
 [[pairs]]
 name = "Obsidian Aqua"
+dark = true
 background = { ansi = 232, hex = "#080808" }
 foreground = { ansi = 123, hex = "#87ffff" }
 contrast_ratio = 16.95
 
 [[pairs]]
 name = "Graphite Apricot"
+dark = true
 background = { ansi = 236, hex = "#303030" }
 foreground = { ansi = 222, hex = "#ffd787" }
 contrast_ratio = 9.63
 
 [[pairs]]
 name = "Stone Mint"
+dark = true
 background = { ansi = 237, hex = "#3a3a3a" }
 foreground = { ansi = 194, hex = "#d7ffd7" }
 contrast_ratio = 10.39
 
 [[pairs]]
 name = "Smoke Butter"
+dark = true
 background = { ansi = 239, hex = "#4e4e4e" }
 foreground = { ansi = 229, hex = "#ffffaf" }
 contrast_ratio = 7.99
 
 [[pairs]]
 name = "Ash White"
+dark = true
 background = { ansi = 240, hex = "#585858" }
 foreground = { ansi = 231, hex = "#ffffff" }
 contrast_ratio = 7.11
 
 [[pairs]]
 name = "Midnight Aqua"
+dark = true
 background = { ansi = 17, hex = "#00005f" }
 foreground = { ansi = 159, hex = "#afffff" }
 contrast_ratio = 15.94
 
 [[pairs]]
 name = "Burgundy Apricot"
+dark = true
 background = { ansi = 52, hex = "#5f0000" }
 foreground = { ansi = 222, hex = "#ffd787" }
 contrast_ratio = 10.31
 
 [[pairs]]
 name = "Cream Navy"
+dark = false
 background = { ansi = 230, hex = "#ffffd7" }
 foreground = { ansi = 18, hex = "#000087" }
 contrast_ratio = 15.21
 
 [[pairs]]
 name = "Mint Charcoal"
+dark = false
 background = { ansi = 194, hex = "#d7ffd7" }
 foreground = { ansi = 235, hex = "#262626" }
 contrast_ratio = 13.82
 
 [[pairs]]
 name = "Pale Blue Ink"
+dark = false
 background = { ansi = 195, hex = "#d7ffff" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 16.85
 
 [[pairs]]
 name = "Rose Burgundy"
+dark = false
 background = { ansi = 224, hex = "#ffd7d7" }
 foreground = { ansi = 52, hex = "#5f0000" }
 contrast_ratio = 10.73
 
 [[pairs]]
 name = "Lilac Aubergine"
+dark = false
 background = { ansi = 225, hex = "#ffd7ff" }
 foreground = { ansi = 53, hex = "#5f005f" }
 contrast_ratio = 9.94
 
 [[pairs]]
 name = "Sand Navy"
+dark = false
 background = { ansi = 223, hex = "#ffd7af" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 13.38
 
 [[pairs]]
 name = "Lemon Slate"
+dark = false
 background = { ansi = 228, hex = "#ffff87" }
 foreground = { ansi = 238, hex = "#444444" }
 contrast_ratio = 9.23
 
 [[pairs]]
 name = "Sky Cobalt"
+dark = false
 background = { ansi = 153, hex = "#afd7ff" }
 foreground = { ansi = 19, hex = "#0000af" }
 contrast_ratio = 8.64
 
 [[pairs]]
 name = "Peach Burgundy"
+dark = false
 background = { ansi = 216, hex = "#ffaf87" }
 foreground = { ansi = 52, hex = "#5f0000" }
 contrast_ratio = 7.89
 
 [[pairs]]
 name = "Seafoam Aubergine"
+dark = false
 background = { ansi = 121, hex = "#87ffaf" }
 foreground = { ansi = 53, hex = "#5f005f" }
 contrast_ratio = 10.26
 
 [[pairs]]
 name = "Apricot Navy"
+dark = false
 background = { ansi = 222, hex = "#ffd787" }
 foreground = { ansi = 18, hex = "#000087" }
 contrast_ratio = 11.35
 
 [[pairs]]
 name = "Cloud Plum"
+dark = false
 background = { ansi = 255, hex = "#eeeeee" }
 foreground = { ansi = 54, hex = "#5f0087" }
 contrast_ratio = 9.86
 
 [[pairs]]
 name = "Silver Indigo"
+dark = false
 background = { ansi = 251, hex = "#c6c6c6" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 10.55
 
 [[pairs]]
 name = "Pink Midnight"
+dark = false
 background = { ansi = 218, hex = "#ffafd7" }
 foreground = { ansi = 18, hex = "#000087" }
 contrast_ratio = 9.16
 
 [[pairs]]
 name = "Aqua Maroon"
+dark = false
 background = { ansi = 159, hex = "#afffff" }
 foreground = { ansi = 52, hex = "#5f0000" }
 contrast_ratio = 12.49
 
 [[pairs]]
 name = "Warm Gray Burgundy"
+dark = false
 background = { ansi = 250, hex = "#bcbcbc" }
 foreground = { ansi = 52, hex = "#5f0000" }
 contrast_ratio = 7.44
 
 [[pairs]]
 name = "Emerald Ink"
+dark = false
 background = { ansi = 35, hex = "#00af5f" }
 foreground = { ansi = 16, hex = "#000000" }
 contrast_ratio = 7.30
 
 [[pairs]]
 name = "Azure Ink"
+dark = false
 background = { ansi = 39, hex = "#00afff" }
 foreground = { ansi = 16, hex = "#000000" }
 contrast_ratio = 8.58
 
 [[pairs]]
 name = "Jade Burgundy"
+dark = false
 background = { ansi = 41, hex = "#00d75f" }
 foreground = { ansi = 52, hex = "#5f0000" }
 contrast_ratio = 7.32
 
 [[pairs]]
 name = "Cerulean Indigo"
+dark = false
 background = { ansi = 75, hex = "#5fafff" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 7.78
 
 [[pairs]]
 name = "Sage Indigo"
+dark = false
 background = { ansi = 108, hex = "#87af87" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 7.30
 
 [[pairs]]
 name = "Spring Burgundy"
+dark = false
 background = { ansi = 114, hex = "#87d787" }
 foreground = { ansi = 52, hex = "#5f0000" }
 contrast_ratio = 8.14
 
 [[pairs]]
 name = "Lavender Ink"
+dark = false
 background = { ansi = 141, hex = "#af87ff" }
 foreground = { ansi = 16, hex = "#000000" }
 contrast_ratio = 7.73
 
 [[pairs]]
 name = "Periwinkle Ink"
+dark = false
 background = { ansi = 147, hex = "#afafff" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 8.92
 
 [[pairs]]
 name = "Pistachio Wine"
+dark = false
 background = { ansi = 151, hex = "#afd7af" }
 foreground = { ansi = 52, hex = "#5f0000" }
 contrast_ratio = 8.85
 
 [[pairs]]
 name = "Orchid Indigo"
+dark = false
 background = { ansi = 176, hex = "#d787d7" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 7.15
 
 [[pairs]]
 name = "Tan Indigo"
+dark = false
 background = { ansi = 180, hex = "#d7af87" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 8.90
 
 [[pairs]]
 name = "Oat Navy"
+dark = false
 background = { ansi = 187, hex = "#d7d7af" }
 foreground = { ansi = 18, hex = "#000087" }
 contrast_ratio = 10.54
 
 [[pairs]]
 name = "Tangerine Indigo"
+dark = false
 background = { ansi = 208, hex = "#ff8700" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 7.48
 
 [[pairs]]
 name = "Candy Pink Indigo"
+dark = false
 background = { ansi = 211, hex = "#ff87af" }
 foreground = { ansi = 17, hex = "#00005f" }
 contrast_ratio = 8.01
 
 [[pairs]]
 name = "Fuchsia Navy"
+dark = false
 background = { ansi = 213, hex = "#ff87ff" }
 foreground = { ansi = 18, hex = "#000087" }
 contrast_ratio = 7.53
 
 [[pairs]]
 name = "Pewter Ink"
+dark = false
 background = { ansi = 247, hex = "#9e9e9e" }
 foreground = { ansi = 16, hex = "#000000" }
 contrast_ratio = 7.84

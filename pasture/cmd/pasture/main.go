@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -35,6 +36,9 @@ func main() {
 }
 
 func run() int {
+	// A log write to a closed stderr must not kill the server (caught, not
+	// ignored: ignored signals are inherited by the programs it starts).
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
 	sock := flag.String("S", "", "socket path (default: $PASTURE_TMPDIR or /tmp, + /pasture-<uid>/default)")
 	logPath := flag.String("log", "", `log file; "-" = stderr (default: stderr, or <socket dir>/pasture.log with -d)`)
 	level := flag.String("log-level", "info", "debug, info, warn or error")
@@ -161,6 +165,13 @@ func startDaemon(sock, logPath string) int {
 	for {
 		select {
 		case err := <-exited:
+			// Another "pasture -d" may have won the race for the lock.
+			if c, derr := net.Dial("unix", sock); derr == nil {
+				c.Close()
+				pid, _ := os.ReadFile(sock + ".lock")
+				fmt.Printf("pasture: already running, pid %s, socket %s\n", strings.TrimSpace(string(pid)), sock)
+				return 0
+			}
 			fmt.Fprintf(os.Stderr, "pasture: server exited during start (%v); see %s\n", err, logPath)
 			return 1
 		case <-deadline:
@@ -231,7 +242,7 @@ func parseBytes(s string) (int64, error) {
 		mult, s = 1<<30, strings.TrimSuffix(s, "G")
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n < 0 {
+	if err != nil || n < 0 || n > math.MaxInt64/mult {
 		return 0, fmt.Errorf("want a size like 64M")
 	}
 	return n * mult, nil

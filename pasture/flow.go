@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,6 +43,22 @@ const (
 type attachment struct {
 	unacked  int64        // output sent, not yet acknowledged (loop-owned)
 	inQueued atomic.Int64 // input queued for the PTY (loop adds, drain subtracts)
+
+	// gone is set (by the loop) when the client detaches. Acknowledgements
+	// carry only the pane id, so one for input sent before the detach must
+	// not reach the client after it: if it attached again, it would count
+	// it against its new window. mu orders the check-and-send in acked with
+	// the loop's detach and its response.
+	mu   sync.Mutex
+	gone bool
+}
+
+// end marks the attachment detached; later input acknowledgements for it
+// are not sent.
+func (a *attachment) end() {
+	a.mu.Lock()
+	a.gone = true
+	a.mu.Unlock()
 }
 
 // encodeCount is the payload of msgAck / msgInputAck: pane id + byte count.
@@ -197,7 +214,11 @@ func (q *inputQueue) acked(ch inChunk) {
 		return
 	}
 	ch.owner.inQueued.Add(-int64(len(ch.data)))
-	ch.c.send(encodeCount(msgInputAck, q.pane, len(ch.data)))
+	ch.owner.mu.Lock()
+	if !ch.owner.gone {
+		ch.c.send(encodeCount(msgInputAck, q.pane, len(ch.data)))
+	}
+	ch.owner.mu.Unlock()
 }
 
 // Close drops what is queued (acknowledging it) and stops the writer.
@@ -238,7 +259,11 @@ func (q *inputQueue) drainTo(dst io.Writer, log *slog.Logger) {
 		q.mu.Unlock()
 		q.acked(ch)
 		if err != nil {
-			log.Warn("writing input to the program failed; further input is dropped", "err", err)
+			if errors.Is(err, os.ErrClosed) {
+				log.Debug("input not written: the pane was closed", "err", err)
+			} else {
+				log.Warn("writing input to the program failed; further input is dropped", "err", err)
+			}
 			q.Close()
 			return
 		}

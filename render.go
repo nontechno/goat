@@ -129,6 +129,14 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	case w.frame != frameFull && m.cfg.Theme.CompactTitleBg != nil:
 		st.Bg = m.cfg.Theme.CompactTitleBg.C
 	}
+	// The "number:title" label keeps its focused look (color and bold) when
+	// the window is inactive; only the border fades.
+	tst := st
+	tst.Attrs |= uv.AttrBold
+	tst.Fg = m.cfg.Theme.FocusedBorder.C
+	if w.pinned {
+		tst.Fg = m.cfg.Theme.PinnedBorder.C
+	}
 	x0, y0, x1, y1 := w.x, w.y, w.x+w.w-1, w.y+w.h-1
 	line := func(y int, left, mid, right rune) {
 		put(scr, x0, y, runeCell(left, st))
@@ -143,7 +151,7 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 		if !w.decorated {
 			return
 		}
-		if cs := textCells(m.titleLabel(w), st, maxW); len(cs) > 0 {
+		if cs := textCells(m.titleLabel(w), tst, maxW); len(cs) > 0 {
 			put(scr, x, y0, runeCell(' ', st))
 			end := putCells(scr, x+1, y0, cs)
 			put(scr, end, y0, runeCell(' ', st))
@@ -178,7 +186,7 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	for x := x0 + 1; x < x1; x++ {
 		put(scr, x, y0+1, space)
 	}
-	cs := textCells(m.titleLabel(w), st, w.w-4)
+	cs := textCells(m.titleLabel(w), tst, w.w-4)
 	putCells(scr, x0+1+(w.w-2-cellsWidth(cs))/2, y0+1, cs)
 	line(y0+2, '├', '─', '┤')
 }

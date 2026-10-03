@@ -17,4 +17,5 @@ func foregroundDir(*os.File, *exec.Cmd) string         { return "" }
 // user and host.
 func foregroundPid(*os.File, *exec.Cmd) int { return 0 }
 func processEUID(int) (int, bool)           { return 0, false }
+func processUIDs(int) (int, int, bool)      { return 0, 0, false }
 func processArgs(int) []string              { return nil }

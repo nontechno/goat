@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestHostLabel(t *testing.T) {
@@ -108,3 +110,24 @@ func TestDrawHost(t *testing.T) {
 		}
 	}
 }
+
+// A FIFO (or other special file) at ~/.hostname is skipped without
+// blocking: it is read on the event loop.
+func TestHostFileNotRegular(t *testing.T) {
+	home := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(home, ".hostname"), 0o600); err != nil {
+		t.Skip("no FIFOs here:", err)
+	}
+	done := make(chan string, 1)
+	go func() { n, _ := hostLabel(home); done <- n }()
+	select {
+	case n := <-done:
+		if want := cleanHostName(must(os.Hostname())); n != want {
+			t.Errorf("got %q, want the system name %q", n, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reading a FIFO at ~/.hostname blocked")
+	}
+}
+
+func must[T any](v T, _ error) T { return v }

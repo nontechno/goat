@@ -112,7 +112,7 @@ func (c *client) send(frame []byte) {
 	}
 	c.queue = append(c.queue, frame)
 	c.queued += len(frame)
-	if c.queued > maxBacklog {
+	if c.queued > maxBacklog && len(c.queue) > 1 { // one frame (a large snapshot) always fits
 		c.log.Error("client too slow: output backlog over limit; disconnecting", "backlog_bytes", c.queued)
 		c.queue, c.stopped = nil, true
 		_ = c.conn.Close()

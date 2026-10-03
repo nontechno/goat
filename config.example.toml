@@ -115,6 +115,8 @@ title_source = "process"
 [theme]
 # Colors are an ANSI palette index (0-255), "#rrggbb" or "default".
 focused_border = 14
+# Only the border fades: an inactive window's "number:title" keeps the
+# focused color (pinned_border for a pinned window), in bold.
 unfocused_border = 8
 # Border color for pinned windows (overrides focused/unfocused).
 pinned_border = 11
@@ -138,20 +140,42 @@ clock_bg = 24
 # The window's border takes the background too. Text a program colors itself
 # keeps its own colors. A single color (e.g. 17) sets only the background;
 # {bg = 17, fg = 230} also works.
+# From colors/terminal_color_pairs_dark.toml: pairs with a contrast ratio
+# of at least 7:1 on dark backgrounds.
 window_colors = [
   "default:default",
-  "234:252",   # charcoal / light grey
-  "17:230",    # navy / cream
-  "22:194",    # forest / pale green
-  "52:224",    # maroon / pale pink
-  "53:225",    # plum / lavender
-  "58:229",    # olive / pale yellow
-  "23:195",    # teal / pale cyan
-  "25:189",    # cobalt / periwinkle
-  "94:223",    # brown / wheat
-  "54:183",    # indigo / light violet
-  "130:230",   # rust / cream
-  "29:157",    # sea green / mint
+  "17:220",   # Midnight Gold (#00005f / #ffd700, contrast 12.85)
+  "24:231",   # Ocean Foam (#005f87 / #ffffff, contrast 7.03)
+  "22:230",   # Forest Cream (#005f00 / #ffffd7, contrast 7.79)
+  "54:225",   # Plum Pearl (#5f0087 / #ffd7ff, contrast 8.94)
+  "235:121",  # Charcoal Mint (#262626 / #87ffaf, contrast 12.22)
+  "233:217",  # Ink Coral (#121212 / #ffafaf, contrast 10.71)
+  "23:230",   # Deep Teal Ivory (#005f5f / #ffffd7, contrast 7.33)
+  "52:224",   # Burgundy Rose (#5f0000 / #ffd7d7, contrast 10.73)
+  "19:195",   # Cobalt Ice (#0000af / #d7ffff, contrast 12.13)
+  "238:228",  # Slate Lemon (#444444 / #ffff87, contrast 9.23)
+  "53:195",   # Mulberry Sky (#5f005f / #d7ffff, contrast 11.89)
+  "55:194",   # Grape Lime (#5f00af / #d7ffd7, contrast 9.11)
+  "88:230",   # Garnet Ivory (#870000 / #ffffd7, contrast 10.12)
+  "90:230",   # Violet Cream (#870087 / #ffffd7, contrast 8.63)
+  "234:183",  # Near Black Lavender (#1c1c1c / #d7afff, contrast 9.30)
+  "18:225",   # Sapphire Blush (#000087 / #ffd7ff, contrast 12.16)
+  "16:214",   # Obsidian Amber (#000000 / #ffaf00, contrast 11.38)
+  "20:230",   # Electric Blue Ivory (#0000d7 / #ffffd7, contrast 10.37)
+  "21:231",   # Ultramarine Snow (#0000ff / #ffffff, contrast 8.59)
+  "56:228",   # Indigo Lemon (#5f00d7 / #ffff87, contrast 8.07)
+  "57:231",   # Electric Violet White (#5f00ff / #ffffff, contrast 7.17)
+  "89:230",   # Raspberry Vanilla (#87005f / #ffffd7, contrast 9.35)
+  "91:195",   # Orchid Ice (#8700af / #d7ffff, contrast 7.41)
+  "124:231",  # Crimson White (#af0000 / #ffffff, contrast 7.44)
+  "125:231",  # Berry White (#af005f / #ffffff, contrast 7.03)
+  "232:123",  # Obsidian Aqua (#080808 / #87ffff, contrast 16.95)
+  "236:222",  # Graphite Apricot (#303030 / #ffd787, contrast 9.63)
+  "237:194",  # Stone Mint (#3a3a3a / #d7ffd7, contrast 10.39)
+  "239:229",  # Smoke Butter (#4e4e4e / #ffffaf, contrast 7.99)
+  "240:231",  # Ash White (#585858 / #ffffff, contrast 7.11)
+  "17:159",   # Midnight Aqua (#00005f / #afffff, contrast 15.94)
+  "52:222",   # Burgundy Apricot (#5f0000 / #ffd787, contrast 10.31)
 ]
 
 # When true, a new window (Alt+c) starts with the scheme after the focused

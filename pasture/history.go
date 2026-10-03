@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -296,21 +298,32 @@ func (s *segment) read(from, to int64, budget int, mustOne bool) (lines []string
 	return lines, true, nil
 }
 
-// prepareHistoryDir creates the history directory (0700, ours) and removes
-// files left there by a server that is gone (we hold the socket's lock).
-func prepareHistoryDir(dir string, log *slog.Logger) error {
+// historyFileName is a segment's name, <pane>-<seq>.log: only those are
+// removed from the directory, which may be one the user chose.
+var historyFileName = regexp.MustCompile(`^[0-9]+-[0-9]+\.log$`)
+
+// prepareHistoryDir creates the history directory (0700, ours), locks it
+// against other servers (two sharing it would delete each other's files),
+// and removes files left there by a server that is gone. The lock is held
+// until the returned file is closed.
+func prepareHistoryDir(dir string, log *slog.Logger) (*os.File, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkPrivateDir(dir); err != nil {
-		return err
+		return nil, err
 	}
-	stale, _ := filepath.Glob(filepath.Join(dir, "*.log"))
+	lock, err := lockFile(filepath.Join(dir, ".lock"))
+	if err != nil {
+		return nil, fmt.Errorf("in use by another server (lock: %v)", err)
+	}
+	stale, _ := filepath.Glob(filepath.Join(dir, "*-*.log"))
+	stale = slices.DeleteFunc(stale, func(p string) bool { return !historyFileName.MatchString(filepath.Base(p)) })
 	for _, p := range stale {
 		_ = os.Remove(p)
 	}
 	if len(stale) > 0 {
 		log.Info("removed stale history files", "dir", dir, "files", len(stale))
 	}
-	return nil
+	return lock, nil
 }
