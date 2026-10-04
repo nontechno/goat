@@ -196,7 +196,14 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 				win.onEvent(evBell, "")
 			}
 		},
-		Title:            func(s string) { win.oscTitle = s },
+		Title: func(s string) {
+			// Listed in the events window when it changes (not when a
+			// prompt sets the same title again).
+			if s != win.oscTitle && win.onEvent != nil {
+				win.onEvent(evTitle, titleEventText(s))
+			}
+			win.oscTitle = s
+		},
 		WorkingDirectory: func(s string) { win.oscDir = parseOSC7(s) },
 		CursorVisibility: func(v bool) { win.cursorVisible = v },
 		CursorStyle: func(s vt.CursorStyle, steady bool) {
@@ -336,6 +343,19 @@ func (w *Window) setGeometry(x, y, width, height int) {
 		w.scroll = min(w.scroll, w.emu.ScrollbackLen())
 		w.hscroll = min(w.hscroll, w.maxHScroll())
 	}
+}
+
+// refit sizes the emulator and the program's terminal to the content area,
+// after the window's place or frame changed (e.g. swapped with the
+// background).
+func (w *Window) refit() {
+	cw, ch := w.contentW(), w.contentH()
+	if w.emu.Width() != w.emuWidth(cw) || w.emu.Height() != ch {
+		w.emu.Resize(w.emuWidth(cw), ch)
+		setWinsize(w.ptmx, cw, ch)
+	}
+	w.scroll = min(w.scroll, w.emu.ScrollbackLen())
+	w.hscroll = min(w.hscroll, w.maxHScroll())
 }
 
 // Line wrapping.

@@ -58,6 +58,12 @@ sequences as before, as upstream's tests expect.
 - `SetScrollbackSize(0)` turns the history off. It used to be ignored,
   keeping the default of 10000 lines.
 
+## Titles containing ';'
+
+- **osc.go:** OSC 0/1/2 were split on every `;` and ignored unless there
+  were exactly two parts, so a title such as `make; make install` never
+  arrived. They are now split at the first `;` only, as xterm does.
+
 ## Verification
 
 - vt's own test suite passes.

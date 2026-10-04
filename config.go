@@ -156,7 +156,8 @@ type KeyConfig struct {
 	ToggleWrap      string `toml:"toggle_wrap"`      // wrap long lines or not
 	ScrollLeft      string `toml:"scroll_left"`      // view sideways (no-wrap)
 	ScrollRight     string `toml:"scroll_right"`
-	ShowEvents      string `toml:"show_events"` // the events window (bells, notifications, ...)
+	ShowEvents      string `toml:"show_events"`     // the events window (bells, notifications, ...)
+	SwapBackground  string `toml:"swap_background"` // swap the active window's program with the background's
 }
 
 // LayoutConfig holds window geometry settings.
@@ -286,7 +287,8 @@ func DefaultConfig() *Config {
 			NewWindow: "c", FocusNext: "n", FocusPrev: "p", Quit: "q",
 			CloseWindow: "x", PinWindow: "w", CycleBackground: "b",
 			ToggleWrap: "z", ScrollLeft: "<", ScrollRight: ">", ShowEvents: "-",
-			MoveLeft: "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
+			SwapBackground: "s",
+			MoveLeft:       "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
 			ResizeLeft: "H", ResizeDown: "J", ResizeUp: "K", ResizeRight: "L",
 		},
 		Layout: LayoutConfig{
@@ -325,6 +327,7 @@ const (
 	actScrollLeft
 	actScrollRight
 	actShowEvents
+	actSwapBackground
 )
 
 // finish validates the config and builds the key binding table. Problems are
@@ -424,6 +427,7 @@ func (c *Config) finish(md *toml.MetaData) []string {
 		{"scroll_left", &c.Keys.ScrollLeft, "<", actScrollLeft},
 		{"scroll_right", &c.Keys.ScrollRight, ">", actScrollRight},
 		{"show_events", &c.Keys.ShowEvents, "-", actShowEvents},
+		{"swap_background", &c.Keys.SwapBackground, "s", actSwapBackground},
 	} {
 		r, size := utf8.DecodeRuneInString(*b.val)
 		if *b.val == "" || size != len(*b.val) || (r >= '0' && r <= '9') {

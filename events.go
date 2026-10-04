@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,8 +20,9 @@ import (
 
 // The events window (Alt+-, keys.show_events) lists what happened that a
 // terminal would otherwise show only fleetingly or not at all: bells,
-// desktop notifications, clipboard writes, programs exiting, a window's
-// user@host changing, config warnings and goat's own errors. Each entry has
+// desktop notifications, title changes, clipboard writes, programs
+// exiting, a window's user@host changing, config warnings and goat's own
+// errors. Each entry has
 // the time and the window it came from; repeats in a row are merged
 // ("bell ×5").
 //
@@ -38,6 +41,7 @@ const (
 	evClipboard eventKind = "clipboard"
 	evExit      eventKind = "exit"
 	evIdentity  eventKind = "identity"
+	evTitle     eventKind = "title"
 	evConfig    eventKind = "config"
 	evError     eventKind = "error"
 )
@@ -129,7 +133,11 @@ func cleanEventText(s string) string {
 // hookEvents routes w's bells and notifications to the events window.
 func (m *WM) hookEvents(w *Window) {
 	w.onEvent = func(kind eventKind, text string) {
-		logger.Info("window event", "window", w.id, "kind", string(kind), "text", cleanEventText(text))
+		level := slog.LevelInfo
+		if kind == evTitle { // frequent: shells set it at every prompt
+			level = slog.LevelDebug
+		}
+		logger.Log(context.Background(), level, "window event", "window", w.id, "kind", string(kind), "text", cleanEventText(text))
 		m.logEvent(w, kind, text)
 	}
 }
@@ -305,8 +313,8 @@ func (m *WM) syncEvents() {
 		w.scroll = 0
 		b.Reset()
 		if len(ev.list) == 0 {
-			b.WriteString("Nothing yet. Bells, desktop notifications, clipboard writes,\r\n" +
-				"programs exiting and user@host changes are listed here.")
+			b.WriteString("Nothing yet. Bells, desktop notifications, title changes, clipboard\r\n" +
+				"writes, programs exiting and user@host changes are listed here.")
 		}
 		for i, e := range ev.list {
 			if i > 0 {
@@ -392,4 +400,13 @@ func (m *WM) eventsIndicator() string {
 		return ""
 	}
 	return fmt.Sprintf(" !%d ", m.ev.unseen)
+}
+
+// titleEventText is how a title change is listed: the new title in quotes,
+// or "(cleared)".
+func titleEventText(title string) string {
+	if title == "" {
+		return "(cleared)"
+	}
+	return `"` + title + `"`
 }

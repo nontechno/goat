@@ -478,6 +478,8 @@ func (m *WM) run(a action) error {
 		}
 	case actShowEvents:
 		m.toggleEvents()
+	case actSwapBackground:
+		m.swapWithBackground()
 	case actPinWindow:
 		if w := m.focused; w != nil && !w.background {
 			w.pinned = !w.pinned
@@ -1000,4 +1002,64 @@ func (m *WM) tick(now time.Time) {
 		m.lastMinute = mn
 		m.dirty = true
 	}
+}
+
+// swapWithBackground swaps the program in the active floating window with
+// the background's (Alt+s). Each program keeps everything that is its own:
+// its terminal and history, colors, wrapping, scroll position, title,
+// directory and identity. What the two exchange are their places: position
+// and size, frame, number (the background stays 0) and stacking order. Both
+// programs are told their new sizes. The focus stays on the floating
+// window, which now runs what was the background.
+func (m *WM) swapWithBackground() {
+	fw, bg := m.focused, m.bg
+	switch {
+	case fw == nil || bg == nil || fw.closed || bg.closed:
+		return
+	case fw.background:
+		m.setStatus("Alt+s swaps a floating window with the background: focus one first", 3*time.Second)
+		return
+	case m.isEvents(fw):
+		m.setStatus("the events window can't be swapped with the background", 3*time.Second)
+		return
+	}
+	fi, bi := slices.Index(m.windows, fw), slices.Index(m.windows, bg)
+	if fi < 0 || bi < 0 {
+		return
+	}
+	m.clearSelectionIn(fw)
+	m.clearSelectionIn(bg)
+	m.drag = drag{}
+
+	x, y, width, height := fw.x, fw.y, fw.w, fw.h
+	frame, decorated, pinned := fw.frame, fw.decorated, fw.pinned
+	fw.id, bg.id = bg.id, fw.id
+
+	// The floating window's program goes to the background ...
+	fw.background, fw.pinned = true, false
+	fw.frame, fw.decorated = bg.frame, bg.decorated
+	fw.x, fw.y, fw.w, fw.h = 0, 0, m.cols, m.areaH()
+	// ... and the background's takes the floating window's place.
+	bg.background, bg.pinned = false, pinned
+	bg.frame, bg.decorated = frame, decorated
+	bg.x, bg.y, bg.w, bg.h = x, y, width, height
+	fw.refit()
+	bg.refit()
+
+	m.windows[fi], m.windows[bi] = bg, fw
+	m.bg = fw
+	m.focus(bg) // the same floating window, now running the former background
+	for _, w := range []*Window{fw, bg} {
+		w.refreshProcName()
+		if m.cfg.StatusShowDir {
+			w.refreshDir()
+		}
+		if m.showIdent() {
+			m.refreshIdent(w)
+		}
+	}
+	logger.Info("swapped with the background", "window", bg.id,
+		"now_floating", bg.displayTitle("process"), "now_background", fw.displayTitle("process"))
+	m.setStatus(fmt.Sprintf("swapped window %d with the background", m.number(bg)), 2*time.Second)
+	m.dirty = true
 }

@@ -52,8 +52,12 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   past the edge and the view scrolls sideways; the bottom border shows which
 - Per-window scrollback (mouse wheel or keys, see below), with a position
   bar on the right edge while scrolled back
+- Alt+s swaps the active window's program with the background's: each keeps
+  its history, colors, wrapping and title, and is resized to its new place;
+  the focus stays on the floating window
 - Events window (Alt+-): bells, desktop notifications (OSC 9, OSC 777,
-  kitty's OSC 99), clipboard writes, programs exiting, `user@host` changes,
+  kitty's OSC 99), title changes (OSC 0/2, listed when the title differs
+  from the last one), clipboard writes, programs exiting, `user@host` changes,
   config warnings and goat's errors, with the time and the window each came
   from. It is a regular window (move, resize, pin, scroll, select and copy)
   without a program; it stays until Alt+- hides it, and Alt+- brings it back
@@ -108,6 +112,7 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Wrap long lines or not    | `Alt+z`                         |
 | View left / right (no wrap) | `Alt+<` / `Alt+>`, Shift+wheel |
 | Events window (bells, notifications, ...) | `Alt+-`         |
+| Swap with the background  | `Alt+s`                         |
 | Close window              | `Alt+x`                         |
 | Quit goat                 | `Alt+q`                         |
 

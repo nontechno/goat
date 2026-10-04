@@ -239,3 +239,49 @@ func pendingInput(w *Window) int {
 	defer w.in.mu.Unlock()
 	return len(w.in.buf)
 }
+
+// Title changes (OSC 0 and 2) are listed when the title differs from the
+// window's last one; a title may contain ';'.
+func TestTitleChangesListed(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("needs /bin/sh")
+	}
+	m := newWM(DefaultConfig(), nil, 80, 24)
+	script := `printf '\033]0;Your New Title\007\033]0;Your New Title\007\033]2;make; make install\033\\\033]0;\007'; sleep 5`
+	path := t.TempDir() + "/run.sh"
+	if err := os.WriteFile(path, []byte(script+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w, err := newWindow(1, "/bin/sh "+path, 0, 0, 40, 10, winOpts{}, m.out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.hookEvents(w)
+	m.windows = []*Window{w}
+	defer m.closeAll()
+
+	for end := time.Now().Add(5 * time.Second); len(m.ev.list) < 3 && time.Now().Before(end); {
+		select {
+		case msg := <-m.out:
+			m.handlePty(msg)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	time.Sleep(100 * time.Millisecond) // anything more would arrive by now
+	for drained := false; !drained; {
+		select {
+		case msg := <-m.out:
+			m.handlePty(msg)
+		default:
+			drained = true
+		}
+	}
+	var got []string
+	for _, e := range m.ev.list {
+		got = append(got, string(e.kind)+" "+e.text)
+	}
+	want := []string{`title "Your New Title"`, `title "make; make install"`, `title (cleared)`}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("events:\n got %q\nwant %q", got, want)
+	}
+}

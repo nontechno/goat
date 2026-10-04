@@ -115,7 +115,7 @@ func init() {
 		actNewWindow: "new window", actFocusNext: "focus next", actFocusPrev: "focus previous",
 		actQuit: "quit", actCloseWindow: "close window", actPinWindow: "pin window",
 		actCycleBackground: "next colors", actToggleWrap: "wrap / no wrap",
-		actScrollLeft: "view left", actScrollRight: "view right", actShowEvents: "events window",
+		actScrollLeft: "view left", actScrollRight: "view right", actShowEvents: "events window", actSwapBackground: "swap with background",
 		actMoveLeft: "move left", actMoveDown: "move down", actMoveUp: "move up", actMoveRight: "move right",
 		actResizeLeft: "narrower", actResizeDown: "taller", actResizeUp: "shorter", actResizeRight: "wider",
 	} {

@@ -207,6 +207,7 @@ toggle_wrap = "z"           # wrap long lines, or not (see wrap_lines)
 scroll_left = "<"           # not wrapping: view left (Alt+Shift+,)
 scroll_right = ">"          # ... and right (Alt+Shift+.)
 show_events = "-"           # events window: bells, notifications, exits, ...
+swap_background = "s"       # swap the active window's program with the background's
 
 [layout]
 # Offset, in character cells, when cascading a new window from the focused one.

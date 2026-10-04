@@ -19,7 +19,9 @@ func (e *Emulator) handleOsc(cmd int, data []byte) {
 }
 
 func (e *Emulator) handleTitle(cmd int, data []byte) {
-	parts := bytes.Split(data, []byte{';'})
+	// GOAT PATCH: split at the first ';' only. A title may contain ';'
+	// ("make; make install"); such titles used to be ignored.
+	parts := bytes.SplitN(data, []byte{';'}, 2)
 	if len(parts) != 2 {
 		// Invalid, ignore
 		return
