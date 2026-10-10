@@ -938,7 +938,7 @@ func (m *WM) nextColorsFrom(from, w *Window) {
 	if p == nil || len(p.bgs) == 0 || from == nil {
 		return
 	}
-	w.bgPick = from.bgPick%len(p.bgs) + 1
+	w.bgPick = max(m.bgPosition(from.bgColor), 0)%len(p.bgs) + 1
 	bg := p.bgs[w.bgPick-1]
 	w.bgColor = bg.c
 	w.fgColor, w.fgPick, w.fgTone = nil, 0, bg.tone
@@ -1079,15 +1079,33 @@ func (m *WM) backgroundTone(w *Window) tone {
 	return toneDark
 }
 
+// bgPosition is where background c is in the circle Alt+b steps through:
+// 0 for the terminal's own (nil), i for the i-th of the .color backgrounds,
+// -1 if it isn't among them. It goes by the color itself, whatever w.bgPick
+// says.
+func (m *WM) bgPosition(c color.Color) int {
+	if c == nil {
+		return 0
+	}
+	if p := m.palette; p != nil {
+		for i, b := range p.bgs {
+			if sameColor(b.c, c) {
+				return i + 1
+			}
+		}
+	}
+	return -1
+}
+
 // nextPaletteBackground (Alt+b) gives w the next background: through the
 // dark ones, then the light ones, then back to the terminal's own. Its text
 // color stays as it is (Alt+f changes that).
 func (m *WM) nextPaletteBackground(w *Window) {
 	p := m.palette
-	w.bgPick++
-	if w.bgPick > len(p.bgs) {
-		w.bgPick = 0
-	}
+	// The backgrounds form a circle: the terminal's own, then each of the
+	// list. Go on from wherever w's current background is in it (one not
+	// in the list: from the start).
+	w.bgPick = (max(m.bgPosition(w.bgColor), 0) + 1) % (len(p.bgs) + 1)
 	msg := "background: the terminal's own"
 	w.bgColor = nil
 	if w.bgPick > 0 {

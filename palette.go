@@ -34,8 +34,8 @@ import (
 // its "ansi" palette number (like goat's other colors), else its "hex".
 //
 // Alt+b steps a window's background through all backgrounds, dark then
-// light (a light one that is also in the dark list is left out), then back
-// to the terminal's own; Alt+f steps its text color
+// light (a color listed twice is used once, as the first), then back to
+// the terminal's own; Alt+f steps its text color
 // through the text colors for the tone of its background.
 
 type tone int
@@ -93,16 +93,16 @@ func loadPalette(dir string) (*palette, []string) {
 			continue
 		}
 		if f.role == "background" {
-			if f.tone == toneLight { // dark ones are already in: drop repeats
-				colors = slices.DeleteFunc(colors, func(c namedColor) bool {
-					dup := slices.ContainsFunc(p.bgs, func(d namedColor) bool { return sameColor(d.c, c.c) })
-					if dup {
-						logger.Info("light background already among the dark ones: left out", "file", path, "color", c.name)
-					}
-					return dup
-				})
+			// A color already in (from the dark list, or earlier in this
+			// one) is left out: Alt+b finds a window's background by its
+			// color, so each may be in the circle only once.
+			for _, c := range colors {
+				if slices.ContainsFunc(p.bgs, func(d namedColor) bool { return sameColor(d.c, c.c) }) {
+					logger.Info("background color already listed: left out", "file", path, "color", c.name)
+					continue
+				}
+				p.bgs = append(p.bgs, c)
 			}
-			p.bgs = append(p.bgs, colors...)
 		} else {
 			p.fgs[f.tone] = append(p.fgs[f.tone], colors...)
 		}

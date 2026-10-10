@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,7 @@ func writePalette(t *testing.T, files map[string]string) string {
 }
 
 const (
-	darkBg  = `{"role":"background","tone":"dark","colors":{"Zed":{"ansi":16},"Alpha":{"ansi":17},"Mid":{"hex":"#00005f"}}}`
+	darkBg  = `{"role":"background","tone":"dark","colors":{"Zed":{"ansi":16},"Alpha":{"ansi":17},"Mid":{"hex":"#5f0000"}}}`
 	lightBg = `{"role":"background","tone":"light","colors":{"Snow":{"ansi":231},"Ivory":{"ansi":230}}}`
 	darkFg  = `{"role":"foreground","tone":"dark","colors":{"Bone":{"ansi":255},"Gold":{"ansi":220}}}`
 	lightFg = `{"role":"foreground","tone":"light","colors":{"Ink":{"ansi":233},"Crimson":{"ansi":124},"Teal":{"ansi":30}}}`
@@ -210,7 +211,7 @@ func TestNewWindowNextPaletteBackground(t *testing.T) {
 	if w.bgPick != 4 || w.fgTone != toneLight || w.fgColor != ansi.IndexedColor(233) {
 		t.Fatalf("next: bg %d, fg %v (%v)", w.bgPick, w.fgColor, w.fgTone)
 	}
-	from.bgPick = 1
+	from.bgPick, from.bgColor = 1, m.palette.bgs[0].c // Zed
 	m.nextColorsFrom(from, w) // dark to dark: from's text color carries over
 	if w.bgPick != 2 || w.fgColor != ansi.IndexedColor(220) {
 		t.Fatalf("same tone: bg %d, fg %v", w.bgPick, w.fgColor)
@@ -256,11 +257,12 @@ func TestNewWindowColorsFromActive(t *testing.T) {
 	}
 }
 
-// A background in both lists is kept only in the dark one (the same color
-// counts, whether given by palette number or hex).
+// A background in both lists is kept only in the dark one, and one listed
+// twice in a list only the first time (the same color counts, whether given
+// by palette number or hex).
 func TestLightBackgroundDuplicatesDropped(t *testing.T) {
 	p, warns := loadPalette(writePalette(t, map[string]string{
-		"dark-background.color":  `{"role":"background","tone":"dark","colors":{"Navy":{"ansi":17},"Grey":{"ansi":245}}}`,
+		"dark-background.color":  `{"role":"background","tone":"dark","colors":{"Navy":{"ansi":17},"Grey":{"ansi":245},"Navy hex":{"hex":"#00005f"}}}`,
 		"light-background.color": `{"role":"background","tone":"light","colors":{"Snow":{"ansi":231},"Grey too":{"hex":"#8a8a8a"},"Navy again":{"ansi":17}}}`,
 		"dark-foreground.color":  darkFg, "light-foreground.color": lightFg,
 	}))
@@ -273,5 +275,29 @@ func TestLightBackgroundDuplicatesDropped(t *testing.T) {
 	}
 	if got := strings.Join(names, " "); got != "Navy/dark Grey/dark Snow/light" {
 		t.Fatalf("backgrounds: %s", got)
+	}
+}
+
+// Alt+b goes on from where the window's background color is in the circle,
+// whatever got it there (a swap, a restored color, an edit to the files).
+func TestAltBFindsCurrentColor(t *testing.T) {
+	m, _, _, w := wmWithBackground(t)
+	m.palette = fullPalette(t) // Zed 16, Alpha 17, Mid, Snow 231, Ivory 230
+	for _, tc := range []struct {
+		bg   color.Color
+		pick int // stale on purpose
+		want string
+	}{
+		{ansi.IndexedColor(231), 0, "Ivory"},          // Snow -> Ivory
+		{ansi.IndexedColor(230), 1, "terminal's own"}, // the last -> around
+		{nil, 4, "Zed"},                   // the terminal's -> first
+		{ansi.IndexedColor(17), 0, "Mid"}, // Alpha -> Mid
+		{ansi.IndexedColor(99), 3, "Zed"}, // not listed -> first
+	} {
+		w.bgColor, w.bgPick = tc.bg, tc.pick
+		_ = m.run(actCycleBackground)
+		if !strings.Contains(m.status, tc.want) {
+			t.Errorf("from %v: %q, want %s", tc.bg, m.status, tc.want)
+		}
 	}
 }
