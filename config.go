@@ -55,47 +55,6 @@ func parseColorString(s string) (color.Color, error) {
 	return ansi.IndexedColor(uint8(n)), nil
 }
 
-// ColorPair is a window color scheme: background and default text color.
-// In the config it is "back:text" (e.g. "17:230", "#1e1e2e:#cdd6f4",
-// "default:default"), a table {bg = 17, fg = 230}, or a single color for the
-// background alone.
-type ColorPair struct{ Bg, Fg color.Color }
-
-// UnmarshalTOML accepts "back:text", a single color, or {bg, fg}.
-func (p *ColorPair) UnmarshalTOML(v any) error {
-	var err error
-	switch v := v.(type) {
-	case int64:
-		var c Color
-		err = c.UnmarshalTOML(v)
-		p.Bg, p.Fg = c.C, nil
-	case string:
-		back, text, _ := strings.Cut(v, ":")
-		if p.Bg, err = parseColorString(back); err == nil {
-			p.Fg, err = parseColorString(text)
-		}
-	case map[string]any:
-		var bg, fg Color
-		for k, val := range v {
-			switch k {
-			case "bg":
-				err = bg.UnmarshalTOML(val)
-			case "fg":
-				err = fg.UnmarshalTOML(val)
-			default:
-				err = fmt.Errorf("unknown key %q (want bg, fg)", k)
-			}
-			if err != nil {
-				break
-			}
-		}
-		p.Bg, p.Fg = bg.C, fg.C
-	default:
-		err = fmt.Errorf("want \"back:text\", a color, or {bg, fg}; got %v", v)
-	}
-	return err
-}
-
 func parseHexColor(s string) (color.Color, error) {
 	h := strings.TrimPrefix(s, "#")
 	if len(h) != 6 || h == s {
@@ -110,10 +69,6 @@ func parseHexColor(s string) (color.Color, error) {
 
 func idx(n uint8) Color { return Color{C: ansi.IndexedColor(n)} }
 
-func pair(bg, fg uint8) ColorPair {
-	return ColorPair{Bg: ansi.IndexedColor(bg), Fg: ansi.IndexedColor(fg)}
-}
-
 // ThemeConfig holds UI colors.
 type ThemeConfig struct {
 	FocusedBorder   Color  `toml:"focused_border"`
@@ -126,13 +81,13 @@ type ThemeConfig struct {
 	ClockBg         Color  `toml:"clock_bg"`
 	CompactTitleBg  *Color `toml:"compact_title_bg"` // compact border bg; nil = terminal default
 
-	// Color schemes (background:text) Alt+b steps the active window through.
-	WindowColors []ColorPair `toml:"window_colors"`
-	// Older background-only form; used when window_colors isn't set.
-	WindowBackgrounds []Color `toml:"window_backgrounds"`
-	// New windows (Alt+c) take the scheme after the focused window's in
-	// window_colors, so they don't look like the window they came from.
+	// New windows (Alt+c) take the background after the focused window's
+	// (from the .color files), so they don't look like the window they
+	// came from; when false, the focused window's colors.
 	NewWindowNextColors bool `toml:"new_window_next_colors"`
+	// Background / text color pairs below this contrast (1-21; WCAG ratio)
+	// aren't used: Alt+f skips them, Alt+b changes the text color. 0 = off.
+	MinTextContrast float64 `toml:"min_text_contrast"`
 }
 
 // KeyConfig holds Alt+<key> bindings. Each value is a single character.
@@ -152,7 +107,8 @@ type KeyConfig struct {
 	ResizeRight string `toml:"resize_right"`
 	PinWindow   string `toml:"pin_window"`
 
-	CycleBackground string `toml:"cycle_background"` // next of theme.window_colors
+	CycleBackground string `toml:"cycle_background"` // next background (from the .color files)
+	CycleForeground string `toml:"cycle_foreground"` // next text color for the background's tone
 	ToggleWrap      string `toml:"toggle_wrap"`      // wrap long lines or not
 	ScrollLeft      string `toml:"scroll_left"`      // view sideways (no-wrap)
 	ScrollRight     string `toml:"scroll_right"`
@@ -181,8 +137,6 @@ type Config struct {
 	// Window frame: "full" (box with a three-row title box), "compact" (box,
 	// title in the top border) or "none" (only a top line with the title).
 	Frame string `toml:"frame"`
-	// Older form of frame: true = "compact", false = "full".
-	Compact bool `toml:"compact"`
 
 	// After a lone Esc, a character key within this many milliseconds is
 	// treated as Alt+key. 0 disables the Esc prefix.
@@ -215,8 +169,8 @@ type Config struct {
 	StatusShowDir bool `toml:"status_show_dir"`
 
 	// Show the host name on the left of each framed window's bottom border.
-	// The name is the first line of ~/.hostname (up to 32 characters) if
-	// that file exists and isn't blank, else the system's host name.
+	// The name is "hostname" in ~/.config/goat/local.toml (up to 32
+	// characters) if it sets one, else the system's host name.
 	ShowHost bool `toml:"show_host"`
 	// Show the user name there too ("user@host"): the user of the window's
 	// foreground program (root after su/sudo), or the user an ssh session
@@ -239,6 +193,7 @@ type Config struct {
 	Layout LayoutConfig `toml:"layout"`
 
 	bindings map[rune]action
+	palette  *palette // loaded from the .color files at startup (palette.go)
 	frame    frameStyle
 }
 
@@ -258,34 +213,20 @@ func DefaultConfig() *Config {
 		ShowHost:        true,
 		ShowUser:        true,
 		Theme: ThemeConfig{
-			FocusedBorder:   idx(14),
-			UnfocusedBorder: idx(8),
-			PinnedBorder:    idx(11),
-			HintText:        idx(11),
-			StatusFg:        idx(250),
-			StatusBg:        idx(236),
-			ClockFg:         idx(231),
-			ClockBg:         idx(24),
-			WindowColors: []ColorPair{
-				{},             // terminal default
-				pair(234, 252), // charcoal / light grey
-				pair(17, 230),  // navy / cream
-				pair(22, 194),  // forest / pale green
-				pair(52, 224),  // maroon / pale pink
-				pair(53, 225),  // plum / lavender
-				pair(58, 229),  // olive / pale yellow
-				pair(23, 195),  // teal / pale cyan
-				pair(25, 189),  // cobalt / periwinkle
-				pair(94, 223),  // brown / wheat
-				pair(54, 183),  // indigo / light violet
-				pair(130, 230), // rust / cream
-				pair(29, 157),  // sea green / mint
-			},
+			FocusedBorder:       idx(14),
+			UnfocusedBorder:     idx(8),
+			PinnedBorder:        idx(11),
+			HintText:            idx(11),
+			StatusFg:            idx(250),
+			StatusBg:            idx(236),
+			ClockFg:             idx(231),
+			ClockBg:             idx(24),
 			NewWindowNextColors: true,
+			MinTextContrast:     3,
 		},
 		Keys: KeyConfig{
 			NewWindow: "c", FocusNext: "n", FocusPrev: "p", Quit: "q",
-			CloseWindow: "x", PinWindow: "w", CycleBackground: "b",
+			CloseWindow: "x", PinWindow: "w", CycleBackground: "b", CycleForeground: "f",
 			ToggleWrap: "z", ScrollLeft: "<", ScrollRight: ">", ShowEvents: "-",
 			SwapBackground: "s",
 			MoveLeft:       "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
@@ -323,6 +264,7 @@ const (
 	actResizeRight
 	actPinWindow
 	actCycleBackground
+	actCycleForeground
 	actToggleWrap
 	actScrollLeft
 	actScrollRight
@@ -342,18 +284,6 @@ func (c *Config) finish(md *toml.MetaData) []string {
 		if md.IsDefined("layout", "alt_timeout_ms") && !md.IsDefined("alt_timeout_ms") {
 			c.AltTimeoutMs = c.Layout.AltTimeoutMs
 		}
-		// compact = true/false is honored when frame isn't given.
-		if md.IsDefined("compact") && !md.IsDefined("frame") {
-			c.Frame = map[bool]string{true: "compact", false: "full"}[c.Compact]
-		}
-		// window_backgrounds (background only) is honored when window_colors
-		// isn't given.
-		if md.IsDefined("theme", "window_backgrounds") && !md.IsDefined("theme", "window_colors") {
-			c.Theme.WindowColors = nil
-			for _, b := range c.Theme.WindowBackgrounds {
-				c.Theme.WindowColors = append(c.Theme.WindowColors, ColorPair{Bg: b.C})
-			}
-		}
 		for _, k := range md.Undecoded() {
 			warn("unknown setting %q (ignored)", k.String())
 		}
@@ -369,6 +299,10 @@ func (c *Config) finish(md *toml.MetaData) []string {
 	if c.NowrapWidth < 80 || c.NowrapWidth > 4096 {
 		warn("nowrap_width = %d: want 80..4096 (using 512)", c.NowrapWidth)
 		c.NowrapWidth = 512
+	}
+	if mc := c.Theme.MinTextContrast; mc != 0 && (mc < 1 || mc > 21) {
+		warn("theme.min_text_contrast = %g: want 1..21, or 0 for no check (using 3)", mc)
+		c.Theme.MinTextContrast = 3
 	}
 	if c.ScrollbackLines < 0 {
 		c.ScrollbackLines = 0
@@ -423,6 +357,7 @@ func (c *Config) finish(md *toml.MetaData) []string {
 		{"resize_right", &c.Keys.ResizeRight, "L", actResizeRight},
 		{"pin_window", &c.Keys.PinWindow, "w", actPinWindow},
 		{"cycle_background", &c.Keys.CycleBackground, "b", actCycleBackground},
+		{"cycle_foreground", &c.Keys.CycleForeground, "f", actCycleForeground},
 		{"toggle_wrap", &c.Keys.ToggleWrap, "z", actToggleWrap},
 		{"scroll_left", &c.Keys.ScrollLeft, "<", actScrollLeft},
 		{"scroll_right", &c.Keys.ScrollRight, ">", actScrollRight},

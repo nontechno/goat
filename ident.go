@@ -16,7 +16,7 @@ import (
 // A window's identity is the user and host its program runs as, shown on
 // the bottom border (show_user, show_host):
 //
-//   - normally goat's host (~/.hostname or the system name) and the user of
+//   - normally goat's host ("hostname" in local.toml, or the system name) and the user of
 //     the window's foreground process, so "su" or "sudo -i" shows root;
 //   - while the foreground process is ssh, the user and host it connects to:
 //     the host as typed on the command line, the user as ssh will use it
@@ -173,18 +173,14 @@ func (m *WM) handleIdent(msg identMsg) {
 	}
 }
 
-// refreshLocalIdent re-reads goat's host label (~/.hostname or the system
+// refreshLocalIdent re-reads goat's host label (local.toml's hostname or the system
 // name) every hostRecheckEvery; reports a change.
 func (m *WM) refreshLocalIdent(now time.Time) bool {
 	if now.Sub(m.hostChecked) < hostRecheckEvery {
 		return false
 	}
 	m.hostChecked = now
-	home := m.home
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	h, source := hostLabel(home)
+	h, source := hostLabel(localConfigPath())
 	if h == m.host {
 		return false
 	}

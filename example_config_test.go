@@ -19,13 +19,7 @@ func TestExampleConfig(t *testing.T) {
 	if c.Keys != d.Keys || c.Layout != d.Layout || c.AltTimeoutMs != d.AltTimeoutMs ||
 		c.ScrollbackLines != d.ScrollbackLines || c.MacOptionKeys != d.MacOptionKeys || c.StatusShowDir != d.StatusShowDir || c.ShowHost != d.ShowHost || c.ShowUser != d.ShowUser || c.LogFile != d.LogFile || c.LogLevel != d.LogLevel || c.TitleSource != d.TitleSource ||
 		c.ClipboardOSC52 != d.ClipboardOSC52 || c.CopyCommand != d.CopyCommand ||
-		len(c.Theme.WindowColors) != len(d.Theme.WindowColors) ||
-		c.Theme.NewWindowNextColors != d.Theme.NewWindowNextColors {
+		c.Theme.NewWindowNextColors != d.Theme.NewWindowNextColors || c.Theme.MinTextContrast != d.Theme.MinTextContrast {
 		t.Fatalf("example differs from defaults:\n%+v\n%+v", c, d)
-	}
-	for i, bg := range c.Theme.WindowColors {
-		if bg != d.Theme.WindowColors[i] {
-			t.Fatalf("window_colors[%d]: %v vs %v", i, bg, d.Theme.WindowColors[i])
-		}
 	}
 }

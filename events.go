@@ -267,7 +267,7 @@ func (m *WM) newEventsWindow() *Window {
 		id: -1, x: (m.cols - width) / 2, y: (area - height) / 2, w: width, h: height,
 		decorated: !m.cfg.DisableMouse, frame: m.cfg.frame,
 		shellName: "events", nowrapW: m.cfg.NowrapWidth, nowrap: !m.cfg.WrapLines,
-		mouseModes: map[ansi.DECMode]bool{}, colorIndex: -1,
+		mouseModes: map[ansi.DECMode]bool{},
 		// no cursor, no input queue, no PTY
 	}
 	w.emu = vt.NewEmulator(w.emuWidth(w.contentW()), w.contentH())

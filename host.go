@@ -1,28 +1,42 @@
 package main
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"unicode"
+
+	"github.com/BurntSushi/toml"
 
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// maxHostLabel is the longest name taken from ~/.hostname, in characters.
+// maxHostLabel is the longest host name shown, in characters.
 const maxHostLabel = 32
 
-// hostLabel is the host name shown in window frames (show_host): the first
-// line of ~/.hostname, trimmed and cut to 32 characters, if there is one;
-// otherwise the system's host name. source says which ("file" or
+// localConfig is ~/.config/goat/local.toml: settings for this machine only,
+// kept apart from config.toml so that one can be shared between machines.
+type localConfig struct {
+	Hostname string `toml:"hostname"` // the name shown in window frames
+	Hotkey   string `toml:"hotkey"`   // (not used yet)
+}
+
+// localConfigPath is local.toml in goat's config directory.
+func localConfigPath() string {
+	dir, err := configDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "local.toml")
+}
+
+// hostLabel is the host name shown in window frames (show_host): the
+// "hostname" from local.toml (trimmed, cut to 32 characters) if it sets
+// one; otherwise the system's host name. source says which ("local.toml" or
 // "system"; "" if neither gave a name).
-func hostLabel(home string) (name, source string) {
-	if home != "" {
-		if n := readHostFile(filepath.Join(home, ".hostname")); n != "" {
-			return n, "file"
-		}
+func hostLabel(localPath string) (name, source string) {
+	if n := readLocalHostname(localPath); n != "" {
+		return n, "local.toml"
 	}
 	if n, err := os.Hostname(); err == nil {
 		if n = cleanHostName(n); n != "" {
@@ -32,30 +46,23 @@ func hostLabel(home string) (name, source string) {
 	return "", ""
 }
 
-// readHostFile returns the cleaned first line of path ("" if the file is
-// missing, unreadable or its first line is blank).
-func readHostFile(path string) string {
-	// Only a regular file, opened without blocking: a FIFO (or a device)
-	// there would otherwise stop goat's event loop on open or read.
-	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+// readLocalHostname returns the cleaned "hostname" from local.toml ("" if
+// the file is missing, unreadable, not valid TOML or sets no name). It is
+// read like any small file goat polls: a regular file only, never
+// blocking, at most 64 KB.
+func readLocalHostname(path string) string {
+	if path == "" {
 		return ""
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	data, err := readSmallFile(path, 64<<10)
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
-	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
-		return "" // replaced between the two checks
-	}
-	// Read at most 4 KB: the first line is all that's wanted, and a huge or
-	// odd file (a device, a binary) mustn't stall startup.
-	sc := bufio.NewScanner(bufio.NewReaderSize(f, 4096))
-	sc.Buffer(make([]byte, 4096), 4096)
-	if !sc.Scan() {
+	var lc localConfig
+	if _, err := toml.Decode(string(data), &lc); err != nil {
 		return ""
 	}
-	return cleanHostName(sc.Text())
+	return cleanHostName(lc.Hostname)
 }
 
 // cleanHostName trims spaces, drops control and other invisible characters

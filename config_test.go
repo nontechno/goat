@@ -21,7 +21,7 @@ func TestDefaultConfig(t *testing.T) {
 func TestParseConfigValues(t *testing.T) {
 	c, warns := parseConfig(`
 shell = "/bin/zsh"
-compact = true
+frame = "compact"
 alt_timeout_ms = 50
 [theme]
 focused_border = 12

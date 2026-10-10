@@ -46,7 +46,15 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file (for diagnosing)")
 	keys := flag.Bool("keys", false, "show what each key press sends and what goat makes of it, then exit (Ctrl+C)")
+	doInstall := flag.Bool("install", false, "download goat's color and config files into ~/.config/goat, then exit")
 	flag.Parse()
+	if *doInstall {
+		if err := install(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "goat -install:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *cpuProfile != "" {
 		if f, err := os.Create(*cpuProfile); err == nil {
 			_ = pprof.StartCPUProfile(f)
@@ -65,6 +73,12 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	// The color palette (the .color files) lives next to the config.
+	if dir, err := configDir(); err == nil {
+		var pw []string
+		cfg.palette, pw = loadPalette(dir)
+		warns = append(warns, pw...)
 	}
 	if w, closeLog := setupLog(cfg); true {
 		defer closeLog()
@@ -167,14 +181,20 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)
 
+	localPath := localConfigPath()
+	desk, deskKnown, dw := readDesktopColors(localPath)
+	if dw != "" {
+		warns = append(warns, dw)
+	}
 	m := newWM(cfg, warns, cols, rows)
+	m.localPath, m.desk, m.deskKnown = localPath, desk, deskKnown
+	if p := m.palette; p != nil {
+		logger.Info("colors", "backgrounds", len(p.bgs),
+			"text_for_dark", len(p.fgs[toneDark]), "text_for_light", len(p.fgs[toneLight]))
+	}
 	if cfg.ShowHost || cfg.ShowUser {
-		home := m.home
-		if home == "" {
-			home, _ = os.UserHomeDir()
-		}
 		var source string
-		m.host, source = hostLabel(home)
+		m.host, source = hostLabel(localPath)
 		m.user = currentUserName()
 		m.hostChecked = time.Now()
 		m.identOn = true

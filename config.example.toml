@@ -17,7 +17,6 @@ disable_mouse = false
 #   "none"    - only a top line with the title; no side or bottom borders.
 #               Drag the middle of the line to move; drag either end, or
 #               the window's bottom-right 2x2 cells, to resize.
-# (The older setting compact = true / false still works when frame isn't set.)
 frame = "compact"
 
 # After pressing Esc, a letter key pressed within this many milliseconds is
@@ -79,10 +78,10 @@ status_show_dir = true
 
 # Show the host name on the left of each window's bottom border (frames
 # "full" and "compact"; "none" has no bottom border):  └─ myhost ──── wrap ─┘
-# The name is the first line of ~/.hostname (up to 32 characters), so you
-# can give a machine a friendlier or shorter label; without that file (or
-# if its first line is blank) it is the system's host name. ~/.hostname and
-# the system name are re-read every 5 seconds, so a rename shows up by itself.
+# The name is "hostname" in ~/.config/goat/local.toml (up to 32 characters),
+# so you can give a machine a friendlier or shorter label; without it (or if
+# it is blank) it is the system's host name. local.toml and the system name
+# are re-read every 5 seconds, so a rename shows up by itself.
 show_host = true
 
 # Show the user name there too:  └─ alice@myhost ── wrap ─┘
@@ -134,54 +133,25 @@ clock_bg = 24
 # (commented out) for the terminal's default.
 # compact_title_bg = 236
 
-# Color schemes that Alt+b (keys.cycle_background) steps the active window
-# through, in order, wrapping around. Each is "background:text"; "default"
-# means the terminal's own color, and windows start at "default:default".
-# The window's border takes the background too. Text a program colors itself
-# keeps its own colors. A single color (e.g. 17) sets only the background;
-# {bg = 17, fg = 230} also works.
-# From colors/terminal_color_pairs_dark.toml: pairs with a contrast ratio
-# of at least 7:1 on dark backgrounds.
-window_colors = [
-  "default:default",
-  "17:220",   # Midnight Gold (#00005f / #ffd700, contrast 12.85)
-  "24:231",   # Ocean Foam (#005f87 / #ffffff, contrast 7.03)
-  "22:230",   # Forest Cream (#005f00 / #ffffd7, contrast 7.79)
-  "54:225",   # Plum Pearl (#5f0087 / #ffd7ff, contrast 8.94)
-  "235:121",  # Charcoal Mint (#262626 / #87ffaf, contrast 12.22)
-  "233:217",  # Ink Coral (#121212 / #ffafaf, contrast 10.71)
-  "23:230",   # Deep Teal Ivory (#005f5f / #ffffd7, contrast 7.33)
-  "52:224",   # Burgundy Rose (#5f0000 / #ffd7d7, contrast 10.73)
-  "19:195",   # Cobalt Ice (#0000af / #d7ffff, contrast 12.13)
-  "238:228",  # Slate Lemon (#444444 / #ffff87, contrast 9.23)
-  "53:195",   # Mulberry Sky (#5f005f / #d7ffff, contrast 11.89)
-  "55:194",   # Grape Lime (#5f00af / #d7ffd7, contrast 9.11)
-  "88:230",   # Garnet Ivory (#870000 / #ffffd7, contrast 10.12)
-  "90:230",   # Violet Cream (#870087 / #ffffd7, contrast 8.63)
-  "234:183",  # Near Black Lavender (#1c1c1c / #d7afff, contrast 9.30)
-  "18:225",   # Sapphire Blush (#000087 / #ffd7ff, contrast 12.16)
-  "16:214",   # Obsidian Amber (#000000 / #ffaf00, contrast 11.38)
-  "20:230",   # Electric Blue Ivory (#0000d7 / #ffffd7, contrast 10.37)
-  "21:231",   # Ultramarine Snow (#0000ff / #ffffff, contrast 8.59)
-  "56:228",   # Indigo Lemon (#5f00d7 / #ffff87, contrast 8.07)
-  "57:231",   # Electric Violet White (#5f00ff / #ffffff, contrast 7.17)
-  "89:230",   # Raspberry Vanilla (#87005f / #ffffd7, contrast 9.35)
-  "91:195",   # Orchid Ice (#8700af / #d7ffff, contrast 7.41)
-  "124:231",  # Crimson White (#af0000 / #ffffff, contrast 7.44)
-  "125:231",  # Berry White (#af005f / #ffffff, contrast 7.03)
-  "232:123",  # Obsidian Aqua (#080808 / #87ffff, contrast 16.95)
-  "236:222",  # Graphite Apricot (#303030 / #ffd787, contrast 9.63)
-  "237:194",  # Stone Mint (#3a3a3a / #d7ffd7, contrast 10.39)
-  "239:229",  # Smoke Butter (#4e4e4e / #ffffaf, contrast 7.99)
-  "240:231",  # Ash White (#585858 / #ffffff, contrast 7.11)
-  "17:159",   # Midnight Aqua (#00005f / #afffff, contrast 15.94)
-  "52:222",   # Burgundy Apricot (#5f0000 / #ffd787, contrast 10.31)
-]
+# Window colors come from the .color files in this folder
+# (dark-background.color, light-background.color, dark-foreground.color,
+# light-foreground.color; "goat -install" fetches them): Alt+b steps the
+# background, Alt+f the text color. The window's border takes the background.
+# The background window's (Alt+0) colors are saved in local.toml whenever
+# they change, and restored when goat starts.
 
-# When true, a new window (Alt+c) starts with the scheme after the focused
-# window's in window_colors (wrapping around) instead of "default:default",
-# so it stands out from the window it was opened from.
+# A new window (Alt+c) takes its colors from the active window:
+#   true  - the background after the active window's (with a text color for
+#           it), so it stands out from the window it was opened from
+#   false - the same background and text color as the active window
 new_window_next_colors = true
+
+# Text must stand out from its background by at least this contrast ratio
+# (1-21, as in the WCAG guidelines; 3 is the minimum for large text, 4.5 for
+# body text). Alt+f skips text colors below it; when a new background
+# (Alt+b, a new window, the saved background-window colors) would hide the
+# text, its text color is changed. 0 turns the check off.
+min_text_contrast = 3
 
 [keys]
 # Every binding is a single character used with the Alt modifier.
@@ -202,7 +172,8 @@ resize_down = "J"           # Alt+Shift+J: taller
 resize_up = "K"             # Alt+Shift+K: shorter
 resize_right = "L"          # Alt+Shift+L: wider
 pin_window = "w"            # keep this window above all others
-cycle_background = "b"      # next scheme from theme.window_colors
+cycle_background = "b"      # next background color (dark ones, light ones, terminal's)
+cycle_foreground = "f"      # next text color for the background's tone (dark/light)
 toggle_wrap = "z"           # wrap long lines, or not (see wrap_lines)
 scroll_left = "<"           # not wrapping: view left (Alt+Shift+,)
 scroll_right = ">"          # ... and right (Alt+Shift+.)

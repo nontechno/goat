@@ -68,10 +68,14 @@ type Window struct {
 	// onEvent reports a bell or desktop notification (events.go).
 	onEvent func(kind eventKind, text string)
 
-	bgColor    color.Color // colors chosen with Alt+b (nil = terminal default)
-	fgColor    color.Color //
-	colorIndex int         // position in theme.window_colors (-1 = none)
-	closed     bool
+	bgColor color.Color // colors chosen with Alt+b (nil = terminal default)
+	fgColor color.Color //
+	// Palette picks (palette.go): 0 = the terminal's own color, n = the
+	// n-th background / the n-th text color for fgTone.
+	bgPick int
+	fgPick int
+	fgTone tone
+	closed bool
 }
 
 // ptyMsg carries output from a window's PTY, or its exit, to the event loop.

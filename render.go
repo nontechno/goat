@@ -138,6 +138,17 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	if w.pinned {
 		tst.Fg = m.cfg.Theme.PinnedBorder.C
 	}
+	// On a colored frame, make sure the border and its text show up.
+	lst := st // host name and wrap state, in the border's color
+	if st.Bg != nil {
+		min := contrastBorder
+		if w != m.focused && !w.pinned {
+			min = contrastUnfocused
+		}
+		lst.Fg = m.visibleOn(st.Fg, st.Bg, contrastLabel)
+		st.Fg = m.visibleOn(st.Fg, st.Bg, min)
+		tst.Fg = m.visibleOn(tst.Fg, st.Bg, contrastLabel)
+	}
 	x0, y0, x1, y1 := w.x, w.y, w.x+w.w-1, w.y+w.h-1
 	line := func(y int, left, mid, right rune) {
 		put(scr, x0, y, runeCell(left, st))
@@ -172,8 +183,8 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 		put(scr, x1, y, side)
 	}
 	line(y1, '└', '─', '┘')
-	m.drawWrapIndicator(scr, w, st)
-	m.drawHost(scr, w, st)
+	m.drawWrapIndicator(scr, w, lst)
+	m.drawHost(scr, w, lst)
 
 	if w.frame == frameCompact {
 		titleInLine(x0+2, w.w-6) // ╭─␠title␠───╮
@@ -309,6 +320,7 @@ func (m *WM) drawScrollMarker(scr uv.Screen, w *Window) {
 	case !overlay && w.frame != frameFull && m.cfg.Theme.CompactTitleBg != nil:
 		st.Bg = m.cfg.Theme.CompactTitleBg.C
 	}
+	st.Fg = m.visibleOn(st.Fg, st.Bg, contrastLabel)
 	for i := range size {
 		put(scr, x, w.contentY()+pos+i, runeCell(ch, st))
 	}

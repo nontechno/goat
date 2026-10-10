@@ -31,16 +31,24 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   and optionally the active window's directory (`status_show_dir`)
 - New windows (Alt+c) start in the active window's current directory
 - `user@host` on each framed window's bottom border (`show_user`,
-  `show_host`, both on by default). The host is the first line of
-  `~/.hostname` (up to 32 characters) if you want a custom label, else the
-  system's host name. Both follow the window: `su`/`sudo -i` shows the new
+  `show_host`, both on by default). The host is `hostname` in
+  `~/.config/goat/local.toml` (up to 32 characters) if you want a custom
+  label, else the system's host name. Both follow the window: `su`/`sudo -i` shows the new
   user, and while ssh runs in the window, the user and host it logs in to
   (Linux)
-- Per-window colors: Alt+b steps through background:text pairs you configure;
-  the border takes the background and the cursor the text color (where the
-  terminal allows setting it). Each new window starts at the next
-  pair after the window it came from (`new_window_next_colors = false` to
-  turn that off)
+- Per-window colors from the `.color` files in `~/.config/goat` (installed
+  by `goat -install`): Alt+b steps the background through the dark ones, then
+  the light ones, then the terminal's own; Alt+f steps the text color through
+  those made for the background's tone (dark or light). The border takes the
+  background, and its lines and text are made lighter or darker where the
+  theme's border colors wouldn't show on it; the cursor takes the text color
+  (where the terminal allows setting it). Each new window starts at the next background after the
+  window it came from (`new_window_next_colors = false`: the same colors as
+  that window). Text colors that wouldn't show on the background (below
+  `min_text_contrast`) are skipped or replaced. The background window's
+  colors are saved in `local.toml` (`[background_window]`) and come back
+  the next time goat starts.
+  Without the `.color` files windows keep the terminal's colors
 - Keyboard-driven window management, plus mouse: drag the title bar to move,
   drag the left/right/bottom edges or bottom corners to resize, click to focus
 - Full rendering: 256-color and true color, bold/italic/underline/reverse,
@@ -105,7 +113,8 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Move window               | `Alt+h/j/k/l` or `Alt+arrows`   |
 | Resize window             | `Alt+H/J/K/L` or `Alt+Shift+arrows` |
 | Pin / unpin (stay on top) | `Alt+w`                         |
-| Next window colors        | `Alt+b` (from `window_colors`)  |
+| Next background color     | `Alt+b`                         |
+| Next text color           | `Alt+f`                         |
 | Scroll history by a page  | `Alt+PageUp` / `Alt+PageDown`   |
 | Scroll history by 3 lines | `Alt+Shift+PageUp` / `PageDown` |
 | Oldest line / live view   | `Alt+Home` / `Alt+End`          |
@@ -150,6 +159,14 @@ are still open; then a fresh background shell is started.
   (vim, htop, ...), hold **Shift** while selecting.
 
 ## Configuration
+
+`goat -install` sets up the config folder (`~/.config/goat`, or
+`$XDG_CONFIG_HOME/goat`): it downloads `config.toml` and `local.toml` from
+https://goat.nontechno.com/configs/ and the color files
+(`dark-background.color`, `dark-foreground.color`, `light-background.color`,
+`light-foreground.color`) from https://goat.nontechno.com/colors/, then exits. Nothing is written unless every
+download succeeds; a file you changed is kept as `<name>.<time>.bak`.
+`GOAT_INSTALL_URL` points it at another server.
 
 goat reads `$XDG_CONFIG_HOME/goat/config.toml` or
 `~/.config/goat/config.toml`, and falls back to float's

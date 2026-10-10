@@ -14,42 +14,58 @@ func TestHostLabel(t *testing.T) {
 	sys = cleanHostName(sys)
 	for _, tt := range []struct {
 		name     string
-		file     *string // nil = no ~/.hostname
+		file     *string // nil = no local.toml
 		want     string
 		wantFrom string
 	}{
 		{"no file", nil, sys, "system"},
-		{"first line, trimmed", ptr("  my-box  \nsecond line\n"), "my-box", "file"},
-		{"CRLF", ptr("win-box\r\n"), "win-box", "file"},
-		{"no newline", ptr("solo"), "solo", "file"},
-		{"cut to 32", ptr(strings.Repeat("x", 40) + "\n"), strings.Repeat("x", 32), "file"},
-		{"control chars dropped", ptr("a\x1b[31mb\x07\n"), "a[31mb", "file"},
-		{"unicode kept", ptr("домашний-ПК 🐐\n"), "домашний-ПК 🐐", "file"},
-		{"blank first line", ptr("   \nignored\n"), sys, "system"},
+		{"hostname set, trimmed", ptr("hostname = \"  my-box  \"\nhotkey = \"\"\n"), "my-box", "local.toml"},
+		{"CRLF file", ptr("# local\r\nhostname = \"win-box\"\r\n"), "win-box", "local.toml"},
+		{"cut to 32", ptr("hostname = \"" + strings.Repeat("x", 40) + "\"\n"), strings.Repeat("x", 32), "local.toml"},
+		{"control chars dropped", ptr("hostname = \"a\\u001b[31mb\\u0007\"\n"), "a[31mb", "local.toml"},
+		{"unicode kept", ptr("hostname = \"домашний-ПК 🐐\"\n"), "домашний-ПК 🐐", "local.toml"},
+		{"blank name", ptr("hostname = \"   \"\n"), sys, "system"},
+		{"no hostname key", ptr("hotkey = \"\"\n"), sys, "system"},
+		{"not TOML", ptr("hostname: box\n"), sys, "system"},
 		{"empty file", ptr(""), sys, "system"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			home := t.TempDir()
+			path := filepath.Join(t.TempDir(), "local.toml")
 			if tt.file != nil {
-				if err := os.WriteFile(filepath.Join(home, ".hostname"), []byte(*tt.file), 0o644); err != nil {
+				if err := os.WriteFile(path, []byte(*tt.file), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			got, from := hostLabel(home)
+			got, from := hostLabel(path)
 			if got != tt.want || from != tt.wantFrom {
 				t.Errorf("got %q (%s), want %q (%s)", got, from, tt.want, tt.wantFrom)
 			}
 		})
 	}
-	// Unreadable ~/.hostname (a directory here) falls back too.
-	home := t.TempDir()
-	_ = os.Mkdir(filepath.Join(home, ".hostname"), 0o755)
-	if got, from := hostLabel(home); got != sys || from != "system" {
-		t.Errorf("directory as ~/.hostname: %q (%s)", got, from)
+	// Unreadable local.toml (a directory here) falls back too.
+	dir := filepath.Join(t.TempDir(), "local.toml")
+	_ = os.Mkdir(dir, 0o755)
+	if got, from := hostLabel(dir); got != sys || from != "system" {
+		t.Errorf("directory as local.toml: %q (%s)", got, from)
 	}
-	// A long first line is cut at 32 characters, not bytes.
+	// A long name is cut at 32 characters, not bytes.
 	if got := cleanHostName(strings.Repeat("é", 40)); len([]rune(got)) != 32 {
 		t.Errorf("cut by bytes: %q", got)
+	}
+	// ~/.hostname is no longer read.
+	home := t.TempDir()
+	_ = os.WriteFile(filepath.Join(home, ".hostname"), []byte("old-way\n"), 0o644)
+	if got, _ := hostLabel(filepath.Join(home, "missing.toml")); got == "old-way" {
+		t.Error("~/.hostname still read")
+	}
+}
+
+// local.toml lives in goat's config directory.
+func TestLocalConfigPath(t *testing.T) {
+	x := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", x)
+	if p := localConfigPath(); p != filepath.Join(x, "goat", "local.toml") {
+		t.Fatalf("%q", p)
 	}
 }
 
@@ -111,22 +127,22 @@ func TestDrawHost(t *testing.T) {
 	}
 }
 
-// A FIFO (or other special file) at ~/.hostname is skipped without
+// A FIFO (or other special file) at local.toml is skipped without
 // blocking: it is read on the event loop.
 func TestHostFileNotRegular(t *testing.T) {
-	home := t.TempDir()
-	if err := syscall.Mkfifo(filepath.Join(home, ".hostname"), 0o600); err != nil {
+	path := filepath.Join(t.TempDir(), "local.toml")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Skip("no FIFOs here:", err)
 	}
 	done := make(chan string, 1)
-	go func() { n, _ := hostLabel(home); done <- n }()
+	go func() { n, _ := hostLabel(path); done <- n }()
 	select {
 	case n := <-done:
 		if want := cleanHostName(must(os.Hostname())); n != want {
 			t.Errorf("got %q, want the system name %q", n, want)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("reading a FIFO at ~/.hostname blocked")
+		t.Fatal("reading a FIFO at local.toml blocked")
 	}
 }
 

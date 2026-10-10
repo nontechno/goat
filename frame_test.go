@@ -10,13 +10,10 @@ import (
 
 func TestFrameConfig(t *testing.T) {
 	for in, want := range map[string]frameStyle{
-		``:                                 frameFull,
-		`frame = "full"`:                   frameFull,
-		`frame = "compact"`:                frameCompact,
-		`frame = "none"`:                   frameNone,
-		`compact = true`:                   frameCompact, // older form
-		`compact = false`:                  frameFull,
-		"frame = \"none\"\ncompact = true": frameNone, // frame wins
+		``:                  frameFull,
+		`frame = "full"`:    frameFull,
+		`frame = "compact"`: frameCompact,
+		`frame = "none"`:    frameNone,
 	} {
 		c, warns := parseConfig(in + "\n")
 		if len(warns) != 0 || c.frame != want {

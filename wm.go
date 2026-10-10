@@ -10,7 +10,6 @@ import (
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // dragKind is the mouse operation in progress.
@@ -41,17 +40,20 @@ type drag struct {
 
 // WM owns all windows and UI state. It is used only from the event loop.
 type WM struct {
-	cfg         *Config
-	warnings    []string
-	cols, rows  int
-	macOption   bool   // treat macOS Option characters as Alt+key (mac_option_keys)
-	home        string // $HOME, shown as ~ in the status bar
-	host        string // shown in window frames (show_host); "" = none
-	user        string // goat's own user name (show_user)
-	identOn     bool   // poll window identities (show_user/show_host; set at start)
-	identOut    chan identMsg
-	userNames   map[int]string
-	hostChecked time.Time
+	cfg *Config
+	// contrastCache remembers border colors adjusted for window
+	// backgrounds (visibleOn).
+	contrastCache map[contrastKey]color.Color
+	warnings      []string
+	cols, rows    int
+	macOption     bool   // treat macOS Option characters as Alt+key (mac_option_keys)
+	home          string // $HOME, shown as ~ in the status bar
+	host          string // shown in window frames (show_host); "" = none
+	user          string // goat's own user name (show_user)
+	identOn       bool   // poll window identities (show_user/show_host; set at start)
+	identOut      chan identMsg
+	userNames     map[int]string
+	hostChecked   time.Time
 
 	windows []*Window // z-order, bottom first; pinned windows sit on top
 	focused *Window
@@ -70,6 +72,12 @@ type WM struct {
 	pasteBuf []byte
 
 	hostFg, hostBg color.Color // host terminal default colors, once known
+	palette        *palette    // the .color files (nil: no window colors)
+	// local.toml, and the background window's colors saved there (desk;
+	// deskKnown: there are some). No localPath: nothing is saved.
+	localPath string
+	desk      desktopColors
+	deskKnown bool
 
 	sel          *selection             // current text selection, if any
 	clicks       int                    // 1, 2, 3 for single/double/triple click
@@ -139,6 +147,7 @@ func (m *WM) startBackground() error {
 		return err
 	}
 	m.initBackground(win)
+	m.restoreDesktop(win)
 	m.applyHostColors(win)
 	m.hookClipboard(win)
 	m.hookEvents(win)
@@ -161,6 +170,7 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		escFire: make(chan struct{}, 1), dirty: true,
 		identOut:  make(chan identMsg, 16),
 		home:      os.Getenv("HOME"),
+		palette:   cfg.palette,
 		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
 	}
 }
@@ -309,6 +319,8 @@ func (m *WM) newWindow() error {
 	m.initBackground(win)
 	if m.cfg.Theme.NewWindowNextColors {
 		m.nextColorsFrom(m.focused, win)
+	} else {
+		sameColorsAs(m.focused, win)
 	}
 	m.applyHostColors(win)
 	m.hookClipboard(win)
@@ -415,6 +427,7 @@ func (m *WM) resizeScreen(cols, rows int) {
 // ---- keyboard --------------------------------------------------------------
 
 func (m *WM) run(a action) error {
+	defer m.saveDesktop() // Alt+b / Alt+f / Alt+s may change its colors
 	switch a {
 	case actNewWindow:
 		return m.newWindow()
@@ -460,6 +473,8 @@ func (m *WM) run(a action) error {
 		m.resizeFocused(0, 1)
 	case actCycleBackground:
 		m.cycleBackground()
+	case actCycleForeground:
+		m.cycleForeground()
 	case actToggleWrap:
 		if w := m.focused; w != nil {
 			m.clearSelectionIn(w) // its columns may not exist afterwards
@@ -881,74 +896,58 @@ func (m *WM) handlePty(msg ptyMsg) {
 	m.dirty = true
 }
 
-// initBackground starts a window in the terminal's default colors, at the
-// "default:default" entry of theme.window_colors if there is one.
+// initBackground starts a window in the terminal's default colors.
 func (m *WM) initBackground(w *Window) {
-	w.bgColor, w.fgColor, w.colorIndex = nil, nil, -1
-	for i, c := range m.cfg.Theme.WindowColors {
-		if c.Bg == nil && c.Fg == nil {
-			w.colorIndex = i
-			break
-		}
-	}
+	w.bgColor, w.fgColor = nil, nil
+	w.bgPick, w.fgPick = 0, 0
 }
 
-// cycleBackground gives the active window the next color scheme from
-// theme.window_colors (background and text), wrapping around.
+// noPalette is the message for Alt+b / Alt+f without the .color files.
+const noPalette = "no window colors: the .color files aren't in the config folder (goat -install fetches them)"
+
+// cycleBackground (Alt+b) gives the active window the next background from
+// the .color files.
 func (m *WM) cycleBackground() {
 	w := m.focused
 	if w == nil {
 		return
 	}
-	list := m.cfg.Theme.WindowColors
-	if len(list) == 0 {
-		m.setStatus("no window_colors in the config", 3*time.Second)
+	if p := m.palette; p == nil || len(p.bgs) == 0 {
+		m.setStatus(noPalette, 5*time.Second)
 		return
 	}
-	w.colorIndex = (w.colorIndex + 1) % len(list)
-	w.bgColor, w.fgColor = list[w.colorIndex].Bg, list[w.colorIndex].Fg
-	m.applyHostColors(w) // programs asking for the colors get these
-	m.setStatus(fmt.Sprintf("colors %d/%d: %s:%s", w.colorIndex+1, len(list),
-		colorName(w.bgColor), colorName(w.fgColor)), 2*time.Second)
+	m.nextPaletteBackground(w)
 }
 
-// nextColorsFrom gives w the window_colors scheme after from's, skipping any
-// that look the same as from's (e.g. a list starting "default:default" when
-// from uses the terminal's colors). With no from, w keeps its colors.
+// sameColorsAs gives w from's colors (background and text, and where they
+// are in the .color lists, so Alt+b / Alt+f go on from there). With no from,
+// w keeps its colors.
+func sameColorsAs(from, w *Window) {
+	if from == nil {
+		return
+	}
+	w.bgColor, w.fgColor = from.bgColor, from.fgColor
+	w.bgPick, w.fgPick, w.fgTone = from.bgPick, from.fgPick, from.fgTone
+}
+
+// nextColorsFrom gives w the background after from's, with a text color for
+// its tone: from's own if it suits, else the first one. Without the .color
+// files (or a from), w keeps its colors.
 func (m *WM) nextColorsFrom(from, w *Window) {
-	list := m.cfg.Theme.WindowColors
-	if from == nil || len(list) == 0 {
+	p := m.palette
+	if p == nil || len(p.bgs) == 0 || from == nil {
 		return
 	}
-	i := from.colorIndex // -1 when from's colors aren't in the list
-	for range list {
-		i = (i + 1) % len(list)
-		if !sameColor(list[i].Bg, from.bgColor) || !sameColor(list[i].Fg, from.fgColor) {
-			break
-		}
+	w.bgPick = from.bgPick%len(p.bgs) + 1
+	bg := p.bgs[w.bgPick-1]
+	w.bgColor = bg.c
+	w.fgColor, w.fgPick, w.fgTone = nil, 0, bg.tone
+	if from.fgPick > 0 && from.fgTone == bg.tone {
+		w.fgColor, w.fgPick = from.fgColor, from.fgPick
+	} else if fgs := p.fgs[bg.tone]; len(fgs) > 0 {
+		w.fgColor, w.fgPick = fgs[0].c, 1
 	}
-	w.colorIndex, w.bgColor, w.fgColor = i, list[i].Bg, list[i].Fg
-}
-
-func sameColor(a, b color.Color) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	ar, ag, ab, aa := a.RGBA()
-	br, bg, bb, ba := b.RGBA()
-	return ar == br && ag == bg && ab == bb && aa == ba
-}
-
-func colorName(c color.Color) string {
-	switch c := c.(type) {
-	case nil:
-		return "default"
-	case ansi.IndexedColor:
-		return fmt.Sprint(uint8(c))
-	default:
-		r, g, b, _ := c.RGBA()
-		return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
-	}
+	m.fixText(w)
 }
 
 // backgroundExited: like a terminal, quit when the background shell exits,
@@ -1061,5 +1060,102 @@ func (m *WM) swapWithBackground() {
 	logger.Info("swapped with the background", "window", bg.id,
 		"now_floating", bg.displayTitle("process"), "now_background", fw.displayTitle("process"))
 	m.setStatus(fmt.Sprintf("swapped window %d with the background", m.number(bg)), 2*time.Second)
+	m.dirty = true
+}
+
+// backgroundTone is the tone of w's background: from the palette, or for
+// the terminal's own background, from the color the terminal reported
+// (dark if it didn't).
+func (m *WM) backgroundTone(w *Window) tone {
+	if p := m.palette; p != nil && w.bgPick > 0 && w.bgPick <= len(p.bgs) {
+		return p.bgs[w.bgPick-1].tone
+	}
+	if w.bgColor != nil {
+		return toneOf(w.bgColor)
+	}
+	if m.hostBg != nil {
+		return toneOf(m.hostBg)
+	}
+	return toneDark
+}
+
+// nextPaletteBackground (Alt+b) gives w the next background: through the
+// dark ones, then the light ones, then back to the terminal's own. Its text
+// color stays as it is (Alt+f changes that).
+func (m *WM) nextPaletteBackground(w *Window) {
+	p := m.palette
+	w.bgPick++
+	if w.bgPick > len(p.bgs) {
+		w.bgPick = 0
+	}
+	msg := "background: the terminal's own"
+	w.bgColor = nil
+	if w.bgPick > 0 {
+		bg := p.bgs[w.bgPick-1]
+		w.bgColor = bg.c
+		msg = fmt.Sprintf("background %d/%d: %s (%s)", w.bgPick, len(p.bgs), bg.name, bg.tone)
+	}
+	if m.fixText(w) {
+		msg += " - text color changed to " + m.textName(w) + " (the old one wouldn't show)"
+	} else if t := m.backgroundTone(w); w.fgPick > 0 && w.fgTone != t {
+		msg += fmt.Sprintf(" - text color is one for %s backgrounds: Alt+f", w.fgTone)
+	}
+	m.applyHostColors(w) // programs asking for the colors get these
+	m.setStatus(msg, 3*time.Second)
+	m.dirty = true
+}
+
+// cycleForeground (Alt+f) gives w the next text color among those for the
+// tone of its background (dark or light), then back to the terminal's own.
+func (m *WM) cycleForeground() {
+	w := m.focused
+	if w == nil {
+		return
+	}
+	p := m.palette
+	if p == nil {
+		m.setStatus(noPalette, 5*time.Second)
+		return
+	}
+	t := m.backgroundTone(w)
+	list := p.fgs[t]
+	if len(list) == 0 {
+		m.setStatus(fmt.Sprintf("no text colors for %s backgrounds (%s-foreground.color)", t, t), 4*time.Second)
+		return
+	}
+	pick := w.fgPick
+	if w.fgTone != t { // the background changed tone: start this list afresh
+		pick = 0
+	}
+	// The next text color that shows on this background (0: the terminal's
+	// own), skipping those that wouldn't.
+	colorOf := func(i int) color.Color {
+		if i == 0 {
+			return nil
+		}
+		return list[i-1].c
+	}
+	skipped := 0
+	for range len(list) + 1 {
+		pick = (pick + 1) % (len(list) + 1)
+		if m.readable(colorOf(pick), w.bgColor) {
+			break
+		}
+		skipped++
+	}
+	if skipped > len(list) {
+		m.setStatus("no text color shows on this background", 3*time.Second)
+		return
+	}
+	w.fgPick, w.fgTone, w.fgColor = pick, t, colorOf(pick)
+	msg := "text color: the terminal's own"
+	if pick > 0 {
+		msg = fmt.Sprintf("text color %d/%d: %s (for %s backgrounds)", pick, len(list), list[pick-1].name, t)
+	}
+	if skipped > 0 {
+		msg += fmt.Sprintf(" - skipped %d that wouldn't show", skipped)
+	}
+	m.applyHostColors(w)
+	m.setStatus(msg, 3*time.Second)
 	m.dirty = true
 }
