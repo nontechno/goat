@@ -1,0 +1,20 @@
+{
+	"role": "background",
+	"tone": "dark",
+	"colors": {
+		"Obsidian": { "ansi": 16, "hex": "#000000" },
+		"Charcoal": { "ansi": 234, "hex": "#1c1c1c" },
+		"Midnight": { "ansi": 17, "hex": "#00005f" },
+		"Navy": { "ansi": 18, "hex": "#000087" },
+		"Forest": { "ansi": 22, "hex": "#005f00" },
+		"Deep Teal": { "ansi": 23, "hex": "#005f5f" },
+		"Ocean": { "ansi": 24, "hex": "#005f87" },
+		"Oxblood": { "ansi": 52, "hex": "#5f0000" },
+		"Plum": { "ansi": 53, "hex": "#5f005f" },
+		"Indigo": { "ansi": 54, "hex": "#5f0087" },
+		"Olive": { "ansi": 58, "hex": "#5f5f00" },
+		"Slate Blue": { "ansi": 60, "hex": "#5f5f87" },
+		"Wine": { "ansi": 89, "hex": "#87005f" },
+		"Umber": { "ansi": 94, "hex": "#875f00" }
+	}
+}

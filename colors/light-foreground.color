@@ -1,0 +1,22 @@
+{
+	"role": "foreground",
+	"tone": "light",
+	"colors": {
+		"Ink": { "ansi": 233, "hex": "#121212" },
+		"Graphite": { "ansi": 238, "hex": "#444444" },
+		"Crimson": { "ansi": 124, "hex": "#af0000" },
+		"Raspberry": { "ansi": 125, "hex": "#af005f" },
+		"Magenta": { "ansi": 127, "hex": "#af00af" },
+		"Purple": { "ansi": 91, "hex": "#8700af" },
+		"Indigo": { "ansi": 55, "hex": "#5f00af" },
+		"Cobalt": { "ansi": 19, "hex": "#0000af" },
+		"Royal Blue": { "ansi": 26, "hex": "#005fd7" },
+		"Steel Blue": { "ansi": 24, "hex": "#005f87" },
+		"Teal": { "ansi": 30, "hex": "#008787" },
+		"Emerald": { "ansi": 29, "hex": "#00875f" },
+		"Forest": { "ansi": 28, "hex": "#008700" },
+		"Olive": { "ansi": 100, "hex": "#878700" },
+		"Brown": { "ansi": 94, "hex": "#875f00" },
+		"Burnt Orange": { "ansi": 130, "hex": "#af5f00" }
+	}
+}

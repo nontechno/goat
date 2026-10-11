@@ -1,0 +1,20 @@
+{
+	"role": "background",
+	"tone": "light",
+	"colors": {
+		"Snow": { "ansi": 231, "hex": "#ffffff" },
+		"Pearl": { "ansi": 255, "hex": "#eeeeee" },
+		"Ivory": { "ansi": 230, "hex": "#ffffd7" },
+		"Lemon": { "ansi": 229, "hex": "#ffffaf" },
+		"Apricot": { "ansi": 222, "hex": "#ffd787" },
+		"Peach": { "ansi": 223, "hex": "#ffd7af" },
+		"Blush": { "ansi": 224, "hex": "#ffd7d7" },
+		"Lilac": { "ansi": 225, "hex": "#ffd7ff" },
+		"Lavender": { "ansi": 189, "hex": "#d7d7ff" },
+		"Sky": { "ansi": 153, "hex": "#afd7ff" },
+		"Aqua": { "ansi": 152, "hex": "#afd7d7" },
+		"Seafoam": { "ansi": 195, "hex": "#d7ffff" },
+		"Mint": { "ansi": 194, "hex": "#d7ffd7" },
+		"Sage": { "ansi": 151, "hex": "#afd7af" }
+	}
+}

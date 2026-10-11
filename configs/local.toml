@@ -1,0 +1,8 @@
+# goat local configuration file
+# Location: ~/.config/goat/local.toml
+
+# friendly hostname
+hostname = "friendly"
+
+# goat --learn
+hotkey = ""

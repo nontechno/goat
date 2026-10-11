@@ -1,0 +1,186 @@
+# goat configuration file
+# Location: $XDG_CONFIG_HOME/goat/config.toml or ~/.config/goat/config.toml
+# (if neither exists, float's ~/.config/float/config.toml is read instead).
+# Any missing values fall back to the defaults shown below.
+# Problems (unknown keys, bad values) are shown in the status bar.
+
+# Shell to spawn in new windows. May include arguments, e.g. "/usr/bin/fish -l".
+# Empty: use $SHELL, or /bin/sh if that is unset too.
+shell = ""
+
+# Disable mouse support entirely. Also hides the window title bar.
+disable_mouse = false
+
+# Window frame:
+#   "full"    - box with a three-row title box
+#   "compact" - box with the title in the top border
+#   "none"    - only a top line with the title; no side or bottom borders.
+#               Drag the middle of the line to move; drag either end, or
+#               the window's bottom-right 2x2 cells, to resize.
+frame = "compact"
+
+# After pressing Esc, a letter key pressed within this many milliseconds is
+# treated as Alt+key (for terminals where Alt doesn't work). 0 disables it.
+# Esc followed by anything that isn't a shortcut is passed through normally.
+alt_timeout_ms = 200
+
+# macOS: Terminal and iTerm2 type a character for Option+key unless "Use
+# Option as Meta key" is on (Option+c types ç, Option+q œ). With this on, such
+# a character is taken as the Alt shortcut it stands for; characters of keys
+# that aren't shortcuts are still typed. Option+n (and e, i, u, `) can't work
+# this way: macOS holds them back as accents. Use Esc then n, or turn on
+# Option as Meta key.
+#   "auto" - on when goat runs on macOS or in Terminal.app / iTerm2
+#            (over SSH that usually can't be detected: set "on")
+#   "on" / "off"
+mac_option_keys = "on"
+
+# Lines of history kept per window. Scroll with the mouse wheel,
+# Alt+PageUp / Alt+PageDown (a page), Alt+Shift+PageUp / PageDown (3 lines),
+# Alt+Home (oldest line) and Alt+End (live view); typing returns to the live
+# view too. While scrolled back, a bar on the right edge shows where you are.
+scrollback_lines = 1000
+
+# Long lines: true wraps them at the window's edge, like any terminal. false
+# lets them run on past the edge, to be seen by scrolling sideways (Alt+< /
+# Alt+>, Shift+mouse wheel; the view also follows the cursor while you type).
+# Alt+z (keys.toggle_wrap) switches the active window either way; windows
+# with a border show "wrap" / "nowrap +N" at the bottom right.
+# Programs are still told the window's real width, so full-screen programs
+# (vim, less, htop) are not affected. Shell line editing of commands longer
+# than the window may look odd while not wrapping. Switching back to wrap cuts
+# lines at the window's width.
+wrap_lines = false
+# How long a line can get when not wrapping (80-4096 columns).
+nowrap_width = 512
+
+# Copying: select text with the mouse (drag, double-click a word,
+# triple-click a line; hold Shift in programs that use the mouse) and it is
+# copied when you release the button.
+# The status bar says which routes were used ("copied 12 characters (via
+# terminal + xclip)") and reports a command that failed.
+#
+# clipboard_osc52: ask the terminal to set the clipboard (OSC 52). Works over
+# SSH. Supported by Windows Terminal, iTerm2, kitty, WezTerm, Alacritty, foot,
+# Ghostty, recent Konsole; NOT by PuTTY, GNOME Terminal / other VTE terminals
+# or macOS Terminal.app; xterm needs "disallowedWindowOps" relaxed.
+clipboard_osc52 = true
+# Also pipe the text to a clipboard program. "" = pick one automatically:
+# inside tmux "tmux load-buffer -w -", on WSL clip.exe, on macOS pbcopy, on
+# Wayland wl-copy, on X11 xclip or xsel. "none" = never. Or name one, e.g.
+# "xclip -selection clipboard".
+copy_command = ""
+
+# Show the active window's current directory in the status bar, left of the
+# clock (~ for your home folder; shortened from the left, e.g. "…/src/goat",
+# when it doesn't fit). New windows (Alt+c) always start in that directory.
+status_show_dir = true
+
+# Show the host name on the left of each window's bottom border (frames
+# "full" and "compact"; "none" has no bottom border):  └─ myhost ──── wrap ─┘
+# The name is "hostname" in ~/.config/goat/local.toml (up to 32 characters),
+# so you can give a machine a friendlier or shorter label; without it (or if
+# it is blank) it is the system's host name. local.toml and the system name
+# are re-read every 5 seconds, so a rename shows up by itself.
+show_host = true
+
+# Show the user name there too:  └─ alice@myhost ── wrap ─┘
+# It is the user of the window's foreground program: after "su" or
+# "sudo -i" it shows root (or whoever), and it changes back when you leave.
+# While the foreground program is ssh, the frame shows where ssh logs in:
+# the host as you typed it and the user ssh uses (from "ssh -G", which reads
+# ~/.ssh/config without connecting). Checked twice a second while shown
+# (Linux; elsewhere goat's own user and host are shown). What happens inside
+# the ssh session (su, a further ssh) can't be seen from here.
+show_user = true
+
+# Log of problems, for diagnosing them: crashes (with a stack trace and the
+# state of every window), a window's terminal emulator failing (with the
+# output it failed on), config problems, clipboard commands failing, windows
+# that can't start, ... Each session starts with a line describing it (goat
+# version, OS, TERM, terminal program, SSH/tmux, screen size).
+#   log_file:  "" = $XDG_STATE_HOME/goat/goat.log (~/.local/state/goat/goat.log);
+#              "none" = no log; or a path (~/ allowed). Rotated to .1 at 4 MB.
+#   log_level: "error", "warn", "info" (also windows opening/closing and their
+#              exit status) or "debug" (also escape sequences goat doesn't handle)
+log_file = ""
+log_level = "info"
+
+# Window title source:
+#   "process"  - name of the program running in the window (like float)
+#   "terminal" - the title the program sets (OSC 0/2), else the process name
+title_source = "process"
+
+[theme]
+# Colors are an ANSI palette index (0-255), "#rrggbb" or "default".
+focused_border = 14
+# Only the border fades: an inactive window's "number:title" keeps the
+# focused color (pinned_border for a pinned window), in bold.
+unfocused_border = 8
+# Border color for pinned windows (overrides focused/unfocused).
+pinned_border = 11
+# Status bar (bottom line): text and background, and the color of messages
+# shown there (config warnings, "copied N characters", ...).
+status_fg = 250
+status_bg = 236
+hint_text = 11
+# The clock at the right end of the status bar, set off from the rest (and
+# from the directory next to it, see status_show_dir).
+clock_fg = 231
+clock_bg = 24
+# Background of the window frame, title included (only used when frame is
+# "compact" or "none" and the window has no Alt+b colors). Leave unset
+# (commented out) for the terminal's default.
+# compact_title_bg = 236
+
+# Window colors come from the .color files in this folder
+# (dark-background.color, light-background.color, dark-foreground.color,
+# light-foreground.color; "goat -install" fetches them): Alt+b steps the
+# background, Alt+f the text color. The window's border takes the background.
+
+# When true, a new window (Alt+c) starts with the background after the
+# focused window's (with a text color for it) instead of the terminal's
+# colors, so it stands out from the window it was opened from.
+new_window_next_colors = false
+
+[keys]
+# Every binding is a single character used with the Alt modifier.
+# Arrow keys always work too: Alt+arrow moves, Alt+Shift+arrow resizes.
+# Alt+1..9 focus windows by the number shown in their title; Alt+0 focuses
+# the full-screen background shell.
+new_window = "c"
+focus_next = "n"
+focus_prev = "p"
+quit = "q"
+close_window = "x"
+move_left = "h"
+move_down = "j"
+move_up = "k"
+move_right = "l"
+resize_left = "H"           # Alt+Shift+H: narrower
+resize_down = "J"           # Alt+Shift+J: taller
+resize_up = "K"             # Alt+Shift+K: shorter
+resize_right = "L"          # Alt+Shift+L: wider
+pin_window = "w"            # keep this window above all others
+cycle_background = "b"      # next background color (dark ones, light ones, terminal's)
+cycle_foreground = "f"      # next text color for the background's tone (dark/light)
+toggle_wrap = "z"           # wrap long lines, or not (see wrap_lines)
+scroll_left = "<"           # not wrapping: view left (Alt+Shift+,)
+scroll_right = ">"          # ... and right (Alt+Shift+.)
+show_events = "-"           # events window: bells, notifications, exits, ...
+swap_background = "s"       # swap the active window's program with the background's
+
+[layout]
+# Offset, in character cells, when cascading a new window from the focused one.
+cascade_offset_x = 2
+cascade_offset_y = 1
+
+# Size of a new window relative to the area above the status bar (0.0-1.0].
+new_window_width_ratio = 0.5
+new_window_height_ratio = 0.5
+
+# Minimum window dimensions, including borders. The height is raised
+# automatically if the frame needs more (5 for "full", 3 for "compact",
+# 2 for "none").
+min_window_cols = 6
+min_window_rows = 5
