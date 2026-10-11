@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,20 +12,53 @@ import (
 	"testing"
 )
 
-// installServer serves every install file as "<dir>/<name> v<version>".
-func installServer(t *testing.T, version *atomic.Int32, missing string) {
+// installContent is what a test server serves for file f: a valid file of
+// its kind, marked with the server's name and a version.
+func installContent(path, server string, version int32) string {
+	mark := fmt.Sprintf("%s %s v%d", server, path, version)
+	if strings.HasSuffix(path, ".color") {
+		role, tone := "background", "dark"
+		for _, f := range paletteFiles {
+			if strings.HasSuffix(path, "/"+f.name) {
+				role, tone = f.role, f.tone.String()
+			}
+		}
+		return fmt.Sprintf(`{"role":%q,"tone":%q,"colors":{%q:{"ansi":17}}}`+"\n", role, tone, mark)
+	}
+	return "# " + mark + "\n"
+}
+
+func wantContent(f struct{ dir, name string }, server string, version int32) string {
+	return installContent(f.dir+"/"+f.name, server, version)
+}
+
+// installServer serves every install file (see installContent). Files
+// named in broken get a 404 ("missing") or an HTML error page with 200
+// ("garbage").
+func installServer(t *testing.T, name string, version *atomic.Int32, broken map[string]string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if missing != "" && strings.HasSuffix(r.URL.Path, "/"+missing) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		switch broken[filepath.Base(path)] {
+		case "missing":
 			http.NotFound(w, r)
 			return
+		case "garbage":
+			_, _ = w.Write([]byte("<html><body>Oops</body></html>\n"))
+			return
 		}
-		_, _ = w.Write([]byte(strings.TrimPrefix(r.URL.Path, "/") + " v" + string(rune('0'+version.Load())) + "\n"))
+		_, _ = w.Write([]byte(installContent(path, name, version.Load())))
 	}))
 	t.Cleanup(srv.Close)
-	old := installBase
-	installBase = srv.URL + "/"
-	t.Cleanup(func() { installBase = old })
+	return srv.URL + "/"
+}
+
+// useSources points -install at the given servers for the test.
+func useSources(t *testing.T, sources ...string) {
+	old := installSources
+	installSources = sources
+	t.Cleanup(func() { installSources = old })
+	t.Setenv("GOAT_INSTALL_URL", "")
 }
 
 func TestInstall(t *testing.T) {
@@ -33,7 +67,7 @@ func TestInstall(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	var ver atomic.Int32
 	ver.Store(1)
-	installServer(t, &ver, "")
+	useSources(t, installServer(t, "main", &ver, nil))
 	dir := filepath.Join(home, ".config", "goat")
 
 	var out bytes.Buffer
@@ -42,7 +76,7 @@ func TestInstall(t *testing.T) {
 	}
 	for _, f := range installFiles {
 		b, err := os.ReadFile(filepath.Join(dir, f.name))
-		if err != nil || string(b) != f.dir+"/"+f.name+" v1\n" {
+		if err != nil || string(b) != wantContent(f, "main", 1) {
 			t.Fatalf("%s: %q %v", f.name, b, err)
 		}
 	}
@@ -67,7 +101,7 @@ func TestInstall(t *testing.T) {
 	if err := install(&out); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(cfg); string(b) != "configs/config.toml v2\n" {
+	if b, _ := os.ReadFile(cfg); string(b) != "# main configs/config.toml v2\n" {
 		t.Fatalf("config.toml = %q", b)
 	}
 	baks, _ := filepath.Glob(cfg + ".*.bak")
@@ -88,14 +122,71 @@ func TestInstallFailureChangesNothing(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	var ver atomic.Int32
 	ver.Store(1)
-	installServer(t, &ver, "local.toml") // the last file is missing
+	// The last file is missing from both sources.
+	gone := map[string]string{"local.toml": "missing"}
+	useSources(t, installServer(t, "main", &ver, gone), installServer(t, "backup", &ver, gone))
 	err := install(&bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "404") || !strings.Contains(err.Error(), "nothing was changed") {
+	if err == nil || strings.Count(err.Error(), "404") != 2 || !strings.Contains(err.Error(), "nothing was changed") {
 		t.Fatalf("err = %v", err)
 	}
 	entries, _ := os.ReadDir(filepath.Join(home, ".config", "goat"))
 	if len(entries) != 0 {
 		t.Fatalf("files written despite the failure: %v", entries)
+	}
+}
+
+// A file the main source can't deliver (missing, an error page, or the
+// whole site down) comes from the backup; the rest from the main one.
+func TestInstallFallsBackToBackup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	var ver atomic.Int32
+	ver.Store(1)
+	main := installServer(t, "main", &ver, map[string]string{
+		"config.toml": "missing", "dark-foreground.color": "garbage", "local.toml": "garbage",
+	})
+	backup := installServer(t, "backup", &ver, nil)
+	useSources(t, main, backup)
+	var out bytes.Buffer
+	if err := install(&out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	dir := filepath.Join(home, ".config", "goat")
+	for _, f := range installFiles {
+		want := "main"
+		if f.name == "config.toml" || f.name == "dark-foreground.color" || f.name == "local.toml" {
+			want = "backup"
+		}
+		if b, _ := os.ReadFile(filepath.Join(dir, f.name)); string(b) != wantContent(f, want, 1) {
+			t.Errorf("%s = %q, want the %s copy", f.name, b, want)
+		}
+	}
+	if strings.Count(out.String(), "trying 127.0.0.1") != 3 {
+		t.Fatalf("output:\n%s", out.String())
+	}
+
+	// Main site down altogether: everything from the backup.
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	useSources(t, dead.URL+"/", backup)
+	ver.Store(2)
+	out.Reset()
+	if err := install(&out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	for _, f := range installFiles {
+		if b, _ := os.ReadFile(filepath.Join(dir, f.name)); string(b) != wantContent(f, "backup", 2) {
+			t.Errorf("site down: %s = %q", f.name, b)
+		}
+	}
+}
+
+// The real sources: the main site, then the GitHub backup.
+func TestInstallSources(t *testing.T) {
+	if len(installSources) != 2 || installSources[0] != "https://goat.nontechno.com/" ||
+		installSources[1] != "https://raw.githubusercontent.com/nontechno/goat/refs/heads/resources/" {
+		t.Fatalf("sources: %v", installSources)
 	}
 }
 

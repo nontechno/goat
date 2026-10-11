@@ -44,7 +44,9 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   theme's border colors wouldn't show on it; the cursor takes the text color
   (where the terminal allows setting it). Each new window starts at the next background after the
   window it came from (`new_window_next_colors = false`: the same colors as
-  that window). Text colors that wouldn't show on the background (below
+  that window). Each press always shows a different color: a color listed twice (or
+  that looks like the one before, or like the terminal's own) is passed
+  over. Text colors that wouldn't show on the background (below
   `min_text_contrast`) are skipped or replaced. The background window's
   colors are saved in `local.toml` (`[background_window]`) and come back
   the next time goat starts.
@@ -164,9 +166,13 @@ are still open; then a fresh background shell is started.
 `$XDG_CONFIG_HOME/goat`): it downloads `config.toml` and `local.toml` from
 https://goat.nontechno.com/configs/ and the color files
 (`dark-background.color`, `dark-foreground.color`, `light-background.color`,
-`light-foreground.color`) from https://goat.nontechno.com/colors/, then exits. Nothing is written unless every
+`light-foreground.color`) from https://goat.nontechno.com/colors/, then exits. A file that
+can't be downloaded from there (or isn't a valid file of its kind) comes
+from the backup copy at
+https://raw.githubusercontent.com/nontechno/goat/refs/heads/resources/
+(same `colors/` and `configs/` folders) instead. Nothing is written unless every
 download succeeds; a file you changed is kept as `<name>.<time>.bak`.
-`GOAT_INSTALL_URL` points it at another server.
+`GOAT_INSTALL_URL` points it at another server (used instead of both).
 
 goat reads `$XDG_CONFIG_HOME/goat/config.toml` or
 `~/.config/goat/config.toml`, and falls back to float's

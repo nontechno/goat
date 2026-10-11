@@ -96,15 +96,9 @@ func loadPalette(dir string) (*palette, []string) {
 			// A color already in (from the dark list, or earlier in this
 			// one) is left out: Alt+b finds a window's background by its
 			// color, so each may be in the circle only once.
-			for _, c := range colors {
-				if slices.ContainsFunc(p.bgs, func(d namedColor) bool { return sameColor(d.c, c.c) }) {
-					logger.Info("background color already listed: left out", "file", path, "color", c.name)
-					continue
-				}
-				p.bgs = append(p.bgs, c)
-			}
+			p.bgs = addDistinct(p.bgs, colors, path)
 		} else {
-			p.fgs[f.tone] = append(p.fgs[f.tone], colors...)
+			p.fgs[f.tone] = addDistinct(p.fgs[f.tone], colors, path)
 		}
 	}
 	if found == 0 {
@@ -234,4 +228,17 @@ func readSmallFile(path string, max int64) ([]byte, error) {
 		return nil, fmt.Errorf("larger than %d bytes", max)
 	}
 	return data, nil
+}
+
+// addDistinct appends to list the colors that don't look like one already in
+// it (or earlier in colors), so Alt+b / Alt+f always change what is seen.
+func addDistinct(list, colors []namedColor, path string) []namedColor {
+	for _, c := range colors {
+		if slices.ContainsFunc(list, func(d namedColor) bool { return looksSame(d.c, c.c) }) {
+			logger.Info("color already listed: left out", "file", path, "color", c.name)
+			continue
+		}
+		list = append(list, c)
+	}
+	return list
 }

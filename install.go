@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 // "goat -install": fetch goat's color and config files into the config
@@ -21,9 +25,14 @@ import (
 // contents is left alone; one with different contents (e.g. edited by hand)
 // is kept as <name>.<time>.bak before the new one replaces it.
 
-// installBase is where the files are fetched from; $GOAT_INSTALL_URL
-// overrides it.
-var installBase = "https://goat.nontechno.com/"
+// installSources are where the files are fetched from, in order: each file
+// comes from the first that delivers it (a download that fails, or isn't a
+// valid file of its kind, is tried from the next). $GOAT_INSTALL_URL
+// replaces them with one source of your own.
+var installSources = []string{
+	"https://goat.nontechno.com/",
+	"https://raw.githubusercontent.com/nontechno/goat/refs/heads/resources/", // backup
+}
 
 // installFiles are the files -install fetches: a directory on the server
 // and the file name, which is also the name in the config directory.
@@ -65,22 +74,37 @@ func install(out io.Writer) error {
 	}
 	fmt.Fprintf(out, "installing into %s\n", dir)
 
-	base := installBase
+	sources := installSources
 	if v := os.Getenv("GOAT_INSTALL_URL"); v != "" { // a mirror, or a test server
-		base = strings.TrimSuffix(v, "/") + "/"
+		sources = []string{strings.TrimSuffix(v, "/") + "/"}
 	}
 
 	// Download everything first.
 	client := &http.Client{Timeout: installTimeout}
 	got := make([][]byte, len(installFiles))
+	from := make([]string, len(installFiles))
 	for i, f := range installFiles {
-		url := base + f.dir + "/" + f.name
-		data, err := download(client, url)
-		if err != nil {
-			return fmt.Errorf("%w (nothing was changed)", err)
+		var errs []string
+		for si, base := range sources {
+			url := base + f.dir + "/" + f.name
+			data, err := download(client, url)
+			if err == nil {
+				err = checkInstallFile(f.name, data)
+			}
+			if err == nil {
+				got[i], from[i] = data, base
+				break
+			}
+			errs = append(errs, url+": "+err.Error())
+			logger.Warn("install: download failed", "url", url, "err", err)
+			if si+1 < len(sources) {
+				fmt.Fprintf(out, "  %-24s %s: %v - trying %s\n", f.name, hostOf(base), err, hostOf(sources[si+1]))
+			}
 		}
-		got[i] = data
-		fmt.Fprintf(out, "  downloaded %-24s %6d bytes\n", f.name, len(data))
+		if got[i] == nil {
+			return fmt.Errorf("%s: %s (nothing was changed)", f.name, strings.Join(errs, "; "))
+		}
+		fmt.Fprintf(out, "  downloaded %-24s %6d bytes  (%s)\n", f.name, len(got[i]), hostOf(from[i]))
 	}
 
 	// Then put each file in place.
@@ -107,34 +131,69 @@ func install(out io.Writer) error {
 			return err
 		}
 	}
-	logger.Info("install", "dir", dir, "from", base)
+	logger.Info("install", "dir", dir, "from", strings.Join(slices.Compact(slices.Clone(from)), " "))
 	fmt.Fprintln(out, "done")
 	return nil
 }
 
-// download fetches url (HTTP 200 only, at most installMaxSize bytes).
-func download(client *http.Client, url string) ([]byte, error) {
+// checkInstallFile makes sure a downloaded file is what its name says (an
+// error page served as "200 OK" isn't): a .color file must be a color list,
+// a .toml file valid TOML.
+func checkInstallFile(name string, data []byte) error {
+	switch {
+	case strings.HasSuffix(name, ".color"):
+		for _, f := range paletteFiles {
+			if f.name == name {
+				if _, err := parseColorFile(data, f.role, f.tone); err != nil {
+					return fmt.Errorf("not a valid color file: %w", err)
+				}
+			}
+		}
+	case strings.HasSuffix(name, ".toml"):
+		var v map[string]any
+		if _, err := toml.Decode(string(data), &v); err != nil {
+			return fmt.Errorf("not valid TOML: %w", err)
+		}
+	}
+	return nil
+}
+
+// hostOf is the host part of a URL, for messages.
+func hostOf(u string) string {
+	if p, err := url.Parse(u); err == nil && p.Host != "" {
+		return p.Host
+	}
+	return u
+}
+
+// download fetches u (HTTP 200 only, at most installMaxSize bytes). Its
+// errors don't repeat the URL: the caller adds it.
+func download(client *http.Client, u string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), installTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "goat/"+version)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("downloading %s: %w", url, err)
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // without the "Get <url>:" around it
+		}
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("downloading %s: %s", url, resp.Status)
+		return nil, errors.New(resp.Status)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, installMaxSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("downloading %s: %w", url, err)
+		return nil, err
 	}
 	if len(data) > installMaxSize {
-		return nil, fmt.Errorf("downloading %s: larger than %d bytes", url, installMaxSize)
+		return nil, fmt.Errorf("larger than %d bytes", installMaxSize)
 	}
 	return data, nil
 }

@@ -240,3 +240,19 @@ func sameColor(a, b color.Color) bool {
 	br, bg, bb, ba := b.RGBA()
 	return ar == br && ag == bg && ab == bb && aa == ba
 }
+
+// looksSame says whether a and b would look alike on screen: each of red,
+// green and blue within 6 (of 255). Neighbouring colors of the 256-color
+// palette (the grays are 10 apart) still count as different.
+func looksSame(a, b color.Color) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	d := func(x, y uint32) bool {
+		x, y = x>>8, y>>8
+		return x-y <= 6 || y-x <= 6
+	}
+	return d(ar, br) && d(ag, bg) && d(ab, bb)
+}

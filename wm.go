@@ -1079,22 +1079,28 @@ func (m *WM) backgroundTone(w *Window) tone {
 	return toneDark
 }
 
-// bgPosition is where background c is in the circle Alt+b steps through:
-// 0 for the terminal's own (nil), i for the i-th of the .color backgrounds,
-// -1 if it isn't among them. It goes by the color itself, whatever w.bgPick
-// says.
-func (m *WM) bgPosition(c color.Color) int {
+// colorPosition is where c is in a circle of colors: 0 for the terminal's
+// own (nil), i for the i-th of list, -1 if it isn't there. It goes by the
+// color itself (whatever the window's remembered pick says), and a color
+// that looks the same counts.
+func colorPosition(c color.Color, list []namedColor) int {
 	if c == nil {
 		return 0
 	}
-	if p := m.palette; p != nil {
-		for i, b := range p.bgs {
-			if sameColor(b.c, c) {
-				return i + 1
-			}
+	for i, x := range list {
+		if looksSame(x.c, c) {
+			return i + 1
 		}
 	}
 	return -1
+}
+
+// bgPosition is where background c is in the circle Alt+b steps through.
+func (m *WM) bgPosition(c color.Color) int {
+	if m.palette == nil {
+		return colorPosition(c, nil)
+	}
+	return colorPosition(c, m.palette.bgs)
 }
 
 // nextPaletteBackground (Alt+b) gives w the next background: through the
@@ -1104,8 +1110,37 @@ func (m *WM) nextPaletteBackground(w *Window) {
 	p := m.palette
 	// The backgrounds form a circle: the terminal's own, then each of the
 	// list. Go on from wherever w's current background is in it (one not
-	// in the list: from the start).
-	w.bgPick = (max(m.bgPosition(w.bgColor), 0) + 1) % (len(p.bgs) + 1)
+	// in the list: from the start), to the next one that looks different
+	// (e.g. a black in the list is passed over when the terminal's own
+	// background is black too).
+	n := len(p.bgs) + 1
+	// What is on screen now, and would be (nil: the terminal's own, if it
+	// hasn't said which color that is).
+	seen := func(c color.Color) color.Color {
+		if c == nil {
+			return m.hostBg
+		}
+		return c
+	}
+	shown := seen(w.bgColor)
+	pos := max(m.bgPosition(w.bgColor), 0)
+	pick := -1
+	for i := 1; i < n; i++ {
+		cand := (pos + i) % n
+		var c color.Color
+		if cand > 0 {
+			c = p.bgs[cand-1].c
+		}
+		if a, b := seen(c), shown; (a == nil) != (b == nil) || !looksSame(a, b) {
+			pick = cand
+			break
+		}
+	}
+	if pick < 0 {
+		m.setStatus("no other background color", 3*time.Second)
+		return
+	}
+	w.bgPick = pick
 	msg := "background: the terminal's own"
 	w.bgColor = nil
 	if w.bgPick > 0 {
@@ -1141,28 +1176,41 @@ func (m *WM) cycleForeground() {
 		m.setStatus(fmt.Sprintf("no text colors for %s backgrounds (%s-foreground.color)", t, t), 4*time.Second)
 		return
 	}
-	pick := w.fgPick
-	if w.fgTone != t { // the background changed tone: start this list afresh
-		pick = 0
-	}
-	// The next text color that shows on this background (0: the terminal's
-	// own), skipping those that wouldn't.
+	// The text colors form a circle too: the terminal's own, then the list.
+	// Go on from w's current text color (one not in the list: from the
+	// start) to the next that both shows on the background and looks
+	// different from the current one.
 	colorOf := func(i int) color.Color {
 		if i == 0 {
 			return nil
 		}
 		return list[i-1].c
 	}
-	skipped := 0
-	for range len(list) + 1 {
-		pick = (pick + 1) % (len(list) + 1)
-		if m.readable(colorOf(pick), w.bgColor) {
-			break
+	n := len(list) + 1
+	seen := func(c color.Color) color.Color {
+		if c == nil {
+			return m.hostFg
 		}
-		skipped++
+		return c
 	}
-	if skipped > len(list) {
-		m.setStatus("no text color shows on this background", 3*time.Second)
+	shown := seen(w.fgColor)
+	pos := max(colorPosition(w.fgColor, list), 0)
+	pick, skipped := -1, 0
+	for i := 1; i < n; i++ {
+		cand := (pos + i) % n
+		c := colorOf(cand)
+		if a, b := seen(c), shown; (a == nil) == (b == nil) && looksSame(a, b) {
+			continue
+		}
+		if !m.readable(c, w.bgColor) {
+			skipped++
+			continue
+		}
+		pick = cand
+		break
+	}
+	if pick < 0 {
+		m.setStatus("no other text color shows on this background", 3*time.Second)
 		return
 	}
 	w.fgPick, w.fgTone, w.fgColor = pick, t, colorOf(pick)

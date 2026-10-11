@@ -88,7 +88,7 @@ func TestPaletteProblems(t *testing.T) {
 func TestAltBAndAltF(t *testing.T) {
 	m, _, _, w := wmWithBackground(t)
 	m.palette = fullPalette(t)
-	m.hostBg = ansi.IndexedColor(16) // a dark terminal
+	m.hostBg = ansi.IndexedColor(234) // a dark terminal
 	key := func(r rune) { _ = m.handleKey(uv.Key{Code: r, Text: string(r), Mod: uv.ModAlt}) }
 	ink, crimson, teal, bone := ansi.IndexedColor(233), ansi.IndexedColor(124), ansi.IndexedColor(30), ansi.IndexedColor(255)
 
@@ -212,7 +212,7 @@ func TestNewWindowNextPaletteBackground(t *testing.T) {
 		t.Fatalf("next: bg %d, fg %v (%v)", w.bgPick, w.fgColor, w.fgTone)
 	}
 	from.bgPick, from.bgColor = 1, m.palette.bgs[0].c // Zed
-	m.nextColorsFrom(from, w) // dark to dark: from's text color carries over
+	m.nextColorsFrom(from, w)                         // dark to dark: from's text color carries over
 	if w.bgPick != 2 || w.fgColor != ansi.IndexedColor(220) {
 		t.Fatalf("same tone: bg %d, fg %v", w.bgPick, w.fgColor)
 	}
@@ -299,5 +299,76 @@ func TestAltBFindsCurrentColor(t *testing.T) {
 		if !strings.Contains(m.status, tc.want) {
 			t.Errorf("from %v: %q, want %s", tc.bg, m.status, tc.want)
 		}
+	}
+}
+
+// Alt+b and Alt+f always change what is seen: a list color that looks like
+// the terminal's own is passed over when stepping from (or to) it.
+func TestAltBAndAltFSkipLookAlikes(t *testing.T) {
+	m, _, _, w := wmWithBackground(t)
+	m.palette = fullPalette(t)                   // Zed 16 (#000000), Alpha 17, Mid, Snow, Ivory
+	m.hostBg = color.RGBA{0, 0, 2, 255}          // black, like Zed
+	m.hostFg = color.RGBA{0xee, 0xee, 0xee, 255} // like Bone (255)
+	_ = m.run(actCycleBackground)
+	if w.bgColor != ansi.IndexedColor(17) || !strings.Contains(m.status, "Alpha") {
+		t.Fatalf("terminal's black -> Zed (black): %v %q", w.bgColor, m.status)
+	}
+	// Alt+f on a dark background: from the terminal's text (like Bone),
+	// Bone is passed over.
+	_ = m.run(actCycleForeground)
+	if w.fgColor != ansi.IndexedColor(220) || !strings.Contains(m.status, "Gold") {
+		t.Fatalf("terminal's text -> Bone (same): %v %q", w.fgColor, m.status)
+	}
+	// From the last background, around: the terminal's own, then on.
+	w.bgColor = ansi.IndexedColor(230)
+	_ = m.run(actCycleBackground)
+	if w.bgColor != nil {
+		t.Fatalf("Ivory -> the terminal's: %v", w.bgColor)
+	}
+}
+
+// Text color lists lose look-alike repeats too.
+func TestTextColorDuplicatesDropped(t *testing.T) {
+	p, _ := loadPalette(writePalette(t, map[string]string{
+		"dark-background.color": darkBg, "light-background.color": lightBg,
+		"dark-foreground.color":  `{"role":"foreground","tone":"dark","colors":{"Bone":{"ansi":255},"Bone hex":{"hex":"#efefef"},"Gold":{"ansi":220}}}`,
+		"light-foreground.color": lightFg,
+	}))
+	if len(p.fgs[toneDark]) != 2 || p.fgs[toneDark][1].name != "Gold" {
+		t.Fatalf("dark text colors: %+v", p.fgs[toneDark])
+	}
+}
+
+// With the shipped color files, on a black terminal: every Alt+b press
+// changes the active window's background, and every Alt+f press its text
+// color, all the way around.
+func TestEveryPressChangesColor(t *testing.T) {
+	p, warns := loadPalette("colors")
+	if p == nil {
+		t.Skip("no colors/ directory")
+	}
+	if len(warns) != 0 {
+		t.Fatal(warns)
+	}
+	m, _, _, w := wmWithBackground(t)
+	m.palette = p
+	m.hostBg, m.hostFg = ansi.IndexedColor(16), ansi.IndexedColor(250)
+	seen := map[string]bool{}
+	for i := range len(p.bgs) + 2 {
+		before := colorString(w.bgColor)
+		_ = m.run(actCycleBackground)
+		if colorString(w.bgColor) == before {
+			t.Fatalf("Alt+b #%d left the background at %s (%q)", i+1, before, m.status)
+		}
+		seen[colorString(w.bgColor)] = true
+		before = colorString(w.fgColor)
+		_ = m.run(actCycleForeground)
+		if colorString(w.fgColor) == before {
+			t.Fatalf("Alt+f on %s left the text at %s (%q)", colorString(w.bgColor), before, m.status)
+		}
+	}
+	// Every background but Obsidian (black, like the terminal's) came up.
+	if len(seen) != len(p.bgs) { // the list less Obsidian, plus "default"
+		t.Fatalf("saw %d backgrounds of %d", len(seen), len(p.bgs))
 	}
 }

@@ -96,7 +96,7 @@ func TestReplaceSectionInMiddle(t *testing.T) {
 func TestDesktopColorsSavedAndRestored(t *testing.T) {
 	m, bg, _, fw := wmWithBackground(t)
 	m.palette = fullPalette(t)
-	m.hostBg = ansi.IndexedColor(16)
+	m.hostBg = ansi.IndexedColor(234)
 	m.localPath = filepath.Join(t.TempDir(), "local.toml")
 
 	m.focus(fw)
