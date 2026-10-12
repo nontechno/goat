@@ -76,6 +76,14 @@ type Window struct {
 	fgPick int
 	fgTone tone
 	closed bool
+
+	// Launch-script windows (goat -script): a fixed title, and whether the
+	// window stays open when its program ends (held: it has ended and is
+	// showing how, until Enter).
+	title    string
+	scripted bool
+	hold     holdMode
+	held     bool
 }
 
 // ptyMsg carries output from a window's PTY, or its exit, to the event loop.
@@ -140,11 +148,12 @@ func (w *Window) contentH() int { return max(w.h-w.chromeH(), 1) }
 type winOpts struct {
 	decorated  bool // title bar (mouse enabled)
 	frame      frameStyle
-	background bool   // borderless full-screen background shell
-	scrollback int    // history lines
-	dir        string // working directory ("" = inherit)
-	nowrap     bool   // long lines run past the right edge (wrap_lines = false)
-	nowrapW    int    // emulator width when not wrapping (nowrap_width)
+	background bool     // borderless full-screen background shell
+	scrollback int      // history lines
+	dir        string   // working directory ("" = inherit)
+	nowrap     bool     // long lines run past the right edge (wrap_lines = false)
+	nowrapW    int      // emulator width when not wrapping (nowrap_width)
+	command    []string // program and arguments ("": the shell)
 }
 
 // newWindow starts shell in a PTY sized to the window's content area.
@@ -160,6 +169,9 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	cw, ch := win.contentW(), win.contentH()
 
 	args := strings.Fields(shell)
+	if len(o.command) > 0 {
+		args = o.command
+	}
 	if len(args) == 0 {
 		return nil, errors.New("no shell to start")
 	}
@@ -227,7 +239,9 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	go func() { _, _ = io.Copy(win.in, win.emu) }()
 	go win.in.drainTo(ptmx)
 
+	readerDone := make(chan struct{})
 	go func() { // PTY output -> event loop
+		defer close(readerDone)
 		buf := make([]byte, 16*1024) // small chunks keep parsing interruptible
 		for {
 			n, err := ptmx.Read(buf)
@@ -247,6 +261,14 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	go func() { // process exit -> event loop (also reaps the child)
 		_ = cmd.Wait()
 		win.exited.Store(true)
+		// Let the program's last output arrive first (what a window kept
+		// open after its program ends shows). Something else still holding
+		// the terminal (a program left in the background) keeps the
+		// output open: don't wait for that.
+		select {
+		case <-readerDone:
+		case <-time.After(500 * time.Millisecond):
+		}
 		out <- ptyMsg{w: win, exited: true}
 	}()
 	return win, nil
@@ -327,7 +349,7 @@ func (w *Window) feed(data []byte) (err error) {
 
 // send writes raw input to the program and returns to the live view.
 func (w *Window) send(b []byte) {
-	if w.closed || len(b) == 0 || w.in == nil { // (no program: the events window)
+	if w.closed || w.held || len(b) == 0 || w.in == nil { // (no program: the events window)
 		return
 	}
 	w.scroll = 0
@@ -509,6 +531,9 @@ func usableDir(d string) bool {
 
 // displayTitle is the name shown in the title bar.
 func (w *Window) displayTitle(source string) string {
+	if w.title != "" {
+		return w.title
+	}
 	if source == "terminal" && w.oscTitle != "" {
 		return w.oscTitle
 	}

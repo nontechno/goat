@@ -14,6 +14,7 @@ import (
 	"image/color"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"runtime/pprof"
 	"strings"
@@ -47,6 +48,7 @@ func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file (for diagnosing)")
 	keys := flag.Bool("keys", false, "show what each key press sends and what goat makes of it, then exit (Ctrl+C)")
 	doInstall := flag.Bool("install", false, "download goat's color and config files into ~/.config/goat, then exit")
+	scriptPath := flag.String("script", "", "launch script: open a window for each [app] in this file at startup")
 	flag.Parse()
 	if *doInstall {
 		if err := install(os.Stdout); err != nil {
@@ -86,7 +88,20 @@ func main() {
 			warns = append(warns, w)
 		}
 	}
-	err := run(cfg, usedPath, warns)
+	var script launchScript
+	if *scriptPath != "" {
+		apps, sw, err := loadScript(*scriptPath)
+		if err != nil { // before the screen is taken over, so it can be read
+			fmt.Fprintln(os.Stderr, "goat:", err)
+			os.Exit(1)
+		}
+		if len(apps) == 0 {
+			sw = append(sw, *scriptPath+": no [app] sections: nothing to launch")
+		}
+		script = launchScript{apps: apps, name: filepath.Base(*scriptPath)}
+		warns = append(warns, sw...)
+	}
+	err := run(cfg, usedPath, warns, script)
 	// Printed after the full-screen UI is gone, so they stay visible.
 	for _, w := range warns {
 		fmt.Fprintln(os.Stderr, "goat: warning:", w)
@@ -119,7 +134,13 @@ func reportCrash(r any) {
 	logger.Error("crash", "panic", fmt.Sprint(r), "state", state, "stack", stack)
 }
 
-func run(cfg *Config, cfgPath string, warns []string) (err error) {
+// launchScript is what "goat -script" asks to open at startup.
+type launchScript struct {
+	apps []appSpec
+	name string
+}
+
+func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err error) {
 	in, out := os.Stdin, os.Stdout
 	if !term.IsTerminal(in.Fd()) || !term.IsTerminal(out.Fd()) {
 		return errors.New("stdin and stdout must be a terminal")
@@ -241,6 +262,9 @@ func run(cfg *Config, cfgPath string, warns []string) (err error) {
 			msg = "nothing to copy with: set clipboard_osc52 = true or copy_command"
 		}
 		m.setStatus(msg, 4*time.Second)
+	}
+	if len(script.apps) > 0 {
+		m.launchApps(script.apps, script.name)
 	}
 
 	sigs := make(chan os.Signal, 1)

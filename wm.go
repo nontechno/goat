@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -283,13 +284,45 @@ func (m *WM) minH() int {
 func (m *WM) minW() int { return m.cfg.Layout.MinWindowCols }
 
 func (m *WM) newWindow() error {
+	_, err := m.openWindow(openSpec{dir: m.newWindowDir(), frame: m.cfg.frame, wrap: m.cfg.WrapLines})
+	return err
+}
+
+// openSpec describes a window to open: Alt+c's, or a launch script app's.
+type openSpec struct {
+	dir     string
+	command []string // program and arguments (nil: the shell)
+	frame   frameStyle
+	wrap    bool
+	title   string   // fixed title ("": the program's name)
+	hold    holdMode // launch scripts: stay open when the program ends
+	// Size (whole window; 0: new_window_*_ratio) and, with hasPos, place.
+	cols, rows, x, y int
+	hasPos           bool
+}
+
+// openWindow opens a floating window, cascading from the focused one, with
+// the colors new windows get, and focuses it.
+func (m *WM) openWindow(o openSpec) (*Window, error) {
 	l := m.cfg.Layout
 	area := m.areaH()
+	decorated := !m.cfg.DisableMouse
+	_, _, t, b := framePads(false, o.frame, decorated)
+	minH := max(l.MinWindowRows, t+b+1)
 	w := clamp(int(float64(m.cols)*l.NewWindowWidthRatio), m.minW(), max(m.cols, m.minW()))
-	h := clamp(int(float64(area)*l.NewWindowHeightRatio), m.minH(), max(area, m.minH()))
+	h := clamp(int(float64(area)*l.NewWindowHeightRatio), minH, max(area, minH))
+	if o.cols > 0 {
+		w = clamp(o.cols, m.minW(), max(m.cols, m.minW()))
+	}
+	if o.rows > 0 {
+		h = clamp(o.rows, minH, max(area, minH))
+	}
 	x, y := (m.cols-w)/2, (area-h)/2
 	if f := m.focused; f != nil && !f.background {
 		x, y = f.x+l.CascadeOffsetX, f.y+l.CascadeOffsetY
+	}
+	if o.hasPos {
+		x, y = min(o.x, max(m.cols-w, 0)), min(o.y, max(area-h, 0))
 	}
 	if x < 0 || x+w > m.cols {
 		x = 0
@@ -298,9 +331,9 @@ func (m *WM) newWindow() error {
 		y = 0
 	}
 	opts := winOpts{
-		decorated: !m.cfg.DisableMouse, frame: m.cfg.frame,
-		scrollback: m.cfg.ScrollbackLines, dir: m.newWindowDir(),
-		nowrap: !m.cfg.WrapLines, nowrapW: m.cfg.NowrapWidth,
+		decorated: decorated, frame: o.frame,
+		scrollback: m.cfg.ScrollbackLines, dir: o.dir,
+		nowrap: !o.wrap, nowrapW: m.cfg.NowrapWidth, command: o.command,
 	}
 	win, err := newWindow(m.nextID, m.shell(), x, y, w, h, opts, m.out)
 	if err != nil && opts.dir != m.dir { // e.g. the directory just vanished
@@ -310,12 +343,18 @@ func (m *WM) newWindow() error {
 		win, err = newWindow(m.nextID, m.shell(), x, y, w, h, opts, m.out)
 	}
 	if err != nil {
-		logger.Error("new window failed", "shell", m.shell(), "dir", opts.dir, "err", err)
-		return err
+		logger.Error("new window failed", "shell", m.shell(), "command", o.command, "dir", opts.dir, "err", err)
+		return nil, err
 	}
-	logger.Info("window opened", "window", win.id, "shell", m.shell(), "dir", opts.dir,
+	logger.Info("window opened", "window", win.id, "shell", m.shell(), "command", o.command, "dir", opts.dir,
 		"size", fmt.Sprintf("%dx%d", win.contentW(), win.contentH()))
 	m.nextID++
+	win.title, win.hold, win.scripted = o.title, o.hold, o.command != nil
+	if o.command != nil { // until the program's own name is known
+		if f := strings.Fields(o.command[len(o.command)-1]); len(f) > 0 {
+			win.shellName = filepath.Base(f[0])
+		}
+	}
 	m.initBackground(win)
 	if m.cfg.Theme.NewWindowNextColors {
 		m.nextColorsFrom(m.focused, win)
@@ -327,7 +366,7 @@ func (m *WM) newWindow() error {
 	m.hookEvents(win)
 	m.windows = append(m.windows, win)
 	m.focus(win)
-	return nil
+	return win, nil
 }
 
 // newWindowDir is where a new window's shell starts: the active window's
@@ -651,6 +690,13 @@ func (m *WM) escExpired() {
 }
 
 func (m *WM) sendFocused(b []byte) {
+	if w := m.focused; w != nil && w.held {
+		// Its program has ended: Enter closes the window.
+		if strings.ContainsAny(string(b), "\r\n") {
+			m.remove(w)
+		}
+		return
+	}
 	if w := m.focused; w != nil {
 		if w.scroll != 0 {
 			m.dirty = true
@@ -882,6 +928,10 @@ func (m *WM) handlePty(msg ptyMsg) {
 		logger.Info("window exited", "window", w.id, "background", w.background,
 			"program", w.displayTitle("process"), "status", status)
 		m.logEvent(w, evExit, status)
+		if hold, how := shouldHold(w); hold && !w.background {
+			m.holdWindow(w, how)
+			return
+		}
 		hadFocus := m.focused == w
 		m.remove(w)
 		if w.background {
