@@ -89,10 +89,11 @@ type WM struct {
 
 	ev events // the events window (events.go)
 
-	status      string    // status bar message
-	statusUntil time.Time // when it disappears
-	tabs        []tab     // status bar tab positions, for mouse clicks
-	lastMinute  int       // clock redraw
+	status      string      // status bar message
+	statusUntil time.Time   // when it disappears
+	tabs        []tab       // status bar tab positions, for mouse clicks
+	quitAsk     *quitDialog // the "Quit goat?" dialog, while it is up
+	lastMinute  int         // clock redraw
 
 	dirty bool
 	quit  bool
@@ -483,7 +484,7 @@ func (m *WM) run(a action) error {
 		}
 		m.focus(ids[i])
 	case actQuit:
-		m.quit = true
+		m.askQuit() // asks first when floating windows are open
 	case actCloseWindow:
 		switch w := m.focused; {
 		case w == nil:
@@ -609,6 +610,10 @@ func pick[T any](cond bool, a, b T) T {
 }
 
 func (m *WM) handleKey(k uv.Key) error {
+	if m.quitAsk != nil && !m.pasting {
+		m.quitDialogKey(k)
+		return nil
+	}
 	if m.pasting { // raw paste without bracketed-paste support upstream
 		if k.Text != "" {
 			m.pasteBuf = append(m.pasteBuf, k.Text...)
@@ -706,6 +711,9 @@ func (m *WM) sendFocused(b []byte) {
 }
 
 func (m *WM) paste(text string) {
+	if m.quitAsk != nil {
+		return
+	}
 	if m.isEvents(m.focused) {
 		m.setStatus("not pasted: the events window takes no input", 3*time.Second)
 		return
@@ -769,6 +777,10 @@ func (m *WM) forwardMouse(w *Window, ev uv.MouseEvent) {
 
 func (m *WM) handleMouse(ev uv.MouseEvent) {
 	if m.cfg.DisableMouse {
+		return
+	}
+	if m.quitAsk != nil {
+		m.quitDialogMouse(ev)
 		return
 	}
 	mo := ev.Mouse()

@@ -48,11 +48,12 @@ type Window struct {
 	procName     string   // foreground process, from /proc
 	nowrap       bool     // long lines are not wrapped (see emuWidth)
 	nowrapW      int
-	hscroll      int    // columns the view is scrolled right (no-wrap)
-	followCursor bool   // the view follows the cursor sideways (after typing)
-	oscTitle     string // set by the program (OSC 0/2)
-	oscDir       string // working directory the shell reported (OSC 7)
-	dir          string // last known working directory (for the status bar)
+	hscroll      int         // columns the view is scrolled right (no-wrap)
+	followCursor bool        // the view follows the cursor sideways (after typing)
+	oscTitle     string      // set by the program (OSC 0/2)
+	titles       titleFilter // which title changes the events window lists
+	oscDir       string      // working directory the shell reported (OSC 7)
+	dir          string      // last known working directory (for the status bar)
 
 	appCursor     bool
 	mouseModes    map[ansi.DECMode]bool
@@ -214,9 +215,12 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 		},
 		Title: func(s string) {
 			// Listed in the events window when it changes (not when a
-			// prompt sets the same title again).
+			// prompt sets the same title again); runs of "Action
+			// Required" and spinner titles once each (titles.go).
 			if s != win.oscTitle && win.onEvent != nil {
-				win.onEvent(evTitle, titleEventText(s))
+				if kind, text, ok := win.titles.next(s); ok {
+					win.onEvent(kind, text)
+				}
 			}
 			win.oscTitle = s
 		},

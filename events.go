@@ -134,7 +134,7 @@ func cleanEventText(s string) string {
 func (m *WM) hookEvents(w *Window) {
 	w.onEvent = func(kind eventKind, text string) {
 		level := slog.LevelInfo
-		if kind == evTitle { // frequent: shells set it at every prompt
+		if kind == evTitle || kind == evSpinner { // frequent: shells set it at every prompt
 			level = slog.LevelDebug
 		}
 		logger.Log(context.Background(), level, "window event", "window", w.id, "kind", string(kind), "text", cleanEventText(text))
@@ -338,7 +338,7 @@ func (m *WM) syncEvents() {
 // attention (bells, notifications, errors).
 func eventSGR(e event, line string) string {
 	switch e.kind {
-	case evBell, evNotify, evError:
+	case evBell, evNotify, evError, evAction:
 		return "\x1b[1m" + line + "\x1b[0m"
 	}
 	return line

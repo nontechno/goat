@@ -67,7 +67,10 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   the focus stays on the floating window
 - Events window (Alt+-): bells, desktop notifications (OSC 9, OSC 777,
   kitty's OSC 99), title changes (OSC 0/2, listed when the title differs
-  from the last one), clipboard writes, programs exiting, `user@host` changes,
+  from the last one; a run of `[ ! ] Action Required ...` titles is listed
+  once as an `action` event, in bold, and a run of Braille spinner titles
+  like `⠋ Thinking` once as a `spinner` event, until another title comes),
+  clipboard writes, programs exiting, `user@host` changes,
   config warnings and goat's errors, with the time and the window each came
   from. It is a regular window (move, resize, pin, scroll, select and copy)
   without a program; it stays until Alt+- hides it, and Alt+- brings it back
@@ -125,7 +128,7 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Events window (bells, notifications, ...) | `Alt+-`         |
 | Swap with the background  | `Alt+s`                         |
 | Close window              | `Alt+x`                         |
-| Quit goat                 | `Alt+q`                         |
+| Quit goat (asks first if windows are open) | `Alt+q`          |
 
 If Alt doesn't reach your terminal, press `Esc` then the letter within
 `alt_timeout_ms` (200 ms by default). Esc followed by anything that isn't a
@@ -142,6 +145,12 @@ an accent key; use Meta, or `Esc` then `n`.
 If shortcuts don't work, run `goat -keys`: it shows which config file is in
 use, whether `mac_option_keys` is on, and for each key you press the bytes
 the terminal sends and what goat makes of them.
+
+**Quitting** with floating windows open asks first: a "Quit goat?" box
+lists them. `y` (or Alt+q again, or Enter on *Quit*) quits; `n`, `Esc` or
+Enter on *Cancel* (the default) goes back. ←/→/Tab switch buttons, and
+clicking one presses it. While the box is up, nothing reaches the windows.
+With only the background shell, Alt+q quits at once.
 
 The background shell can't be moved, resized, pinned or closed with Alt+x.
 When it exits, goat quits, like a terminal does, unless floating windows

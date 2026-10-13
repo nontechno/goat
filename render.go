@@ -24,6 +24,9 @@ func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 		m.drawScrollMarker(scr, w)
 	}
 	m.drawStatus(scr) // last, so windows never cover it
+	if m.quitAsk != nil {
+		m.drawQuitDialog(scr) // over everything
+	}
 }
 
 // put sets a cell if it lies on screen.
@@ -449,7 +452,7 @@ func homeShort(dir, home string) string {
 // window.
 func (m *WM) cursorFor() (x, y int, ok bool) {
 	w := m.focused
-	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 {
+	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 || m.quitAsk != nil {
 		return 0, 0, false
 	}
 	p := w.emu.CursorPosition()
