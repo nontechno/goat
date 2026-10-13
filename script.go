@@ -9,26 +9,35 @@ import (
 	"time"
 )
 
-// Launch scripts: "goat -script FILE" opens a window for each app listed
-// in FILE when goat starts.
+// Launch scripts: "goat -script FILE" opens windows when goat starts, as
+// FILE says (scripting.md has the full description):
 //
-//	# a comment: a line starting with # (or empty; the #! line too)
-//	[app]
-//	cd: ~/src/project
-//	title: build
-//	run: make watch
-//	option: wrap: off
+//	# comment (a line starting with #; so are empty lines)
+//	option: wrap: off      # (comments are whole lines only)
+//	cd: /srv
+//	{
+//		cd: app              # /srv/app
+//		run: make watch      # a window, in /srv/app, not wrapping
+//		{
+//			cd: ../logs      # /srv/logs: relative to the block's start (/srv/app)
+//			title: logs
+//			run: tail -f x.log
+//		}
+//		cd: web              # /srv/web: relative to /srv, where this block began
+//		run: npm start
+//	}
+//	run: htop              # in /srv again
 //
-// cd: is the working directory (relative: to the script's folder), title:
-// the window's title (instead of the program's name), run: the program and
-// its arguments, run by your shell, option: one option (see scriptOptions).
-// A # after a value is part of the value. An [app] without "run:" gets a
-// shell. See scripting.md. Windows open in the order listed;
-// the last one has the focus unless one says "option: focus: on".
+// Settings (cd:, title:, option:) hold from where they are set to the end
+// of their block, inner blocks included; each run: opens a window with the
+// settings in effect there. A relative cd: is taken from the folder the
+// block started in (at the top: the script's folder). A value in quotes
+// keeps its spaces and braces: title: "build ", run: "echo {x}".
 
-// appSpec is one [app] of a launch script.
+// appSpec is one window of a launch script: the settings in effect at a
+// run: line.
 type appSpec struct {
-	line       int // where the [app] starts, for messages
+	line       int // the run: line, for messages
 	dir        string
 	title      string
 	run        string
@@ -72,80 +81,107 @@ func loadScript(path string) ([]appSpec, []string, error) {
 	return apps, warns, nil
 }
 
+// scriptScope is a block's settings: base is the folder relative cd:s are
+// taken from (the folder in effect when the block began), set the settings
+// so far (set.dir "" = the folder goat was started in).
+type scriptScope struct {
+	base string
+	set  appSpec
+	line int // where the block began, for messages
+}
+
 func parseScript(text, baseDir, name string) ([]appSpec, []string) {
 	var apps []appSpec
 	var warns []string
 	warn := func(line int, f string, a ...any) {
 		warns = append(warns, fmt.Sprintf("%s:%d: %s", name, line, fmt.Sprintf(f, a...)))
 	}
-	var cur *appSpec
-	inOther := false // in a [section] that isn't [app]
-	for i, line := range strings.Split(text, "\n") {
+	stack := []scriptScope{{base: baseDir}}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
 		n := i + 1
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
-		if line == "" || strings.HasPrefix(line, "#") {
+		cur := &stack[len(stack)-1]
+		switch {
+		case line == "" || strings.HasPrefix(line, "#"):
 			continue
-		}
-		if strings.HasPrefix(line, "[") {
-			sec := strings.ToLower(strings.TrimSpace(strings.Trim(line, "[]")))
-			if !strings.HasSuffix(line, "]") || sec != "app" {
-				warn(n, "unknown section %s (only [app]); ignored up to the next [app]", line)
-				cur, inOther = nil, true
-				continue
+		case line == "{":
+			base := cur.set.dir
+			if base == "" {
+				base = cur.base
 			}
-			apps = append(apps, appSpec{line: n})
-			cur, inOther = &apps[len(apps)-1], false
+			stack = append(stack, scriptScope{base: base, set: cur.set, line: n})
 			continue
-		}
-		if inOther {
-			continue
-		}
-		if cur == nil {
-			warn(n, "%q is outside an [app] section (ignored)", line)
+		case line == "}":
+			if len(stack) == 1 {
+				warn(n, "} without a matching { (ignored)")
+			} else {
+				stack = stack[:len(stack)-1]
+			}
 			continue
 		}
 		key, val, ok := strings.Cut(line, ":")
-		key, val = strings.ToLower(strings.TrimSpace(key)), strings.TrimSpace(val)
+		key, val = strings.ToLower(strings.TrimSpace(key)), unquote(strings.TrimSpace(val))
 		if !ok {
-			warn(n, "%q: want \"cd:\", \"title:\", \"run:\" or \"option:\"", line)
+			hint := ""
+			if strings.HasPrefix(line, "[") {
+				hint = " ([sections] aren't used: each run: opens a window, { } group settings)"
+			}
+			warn(n, "%q: want cd:, title:, run:, option:, { or }%s", line, hint)
 			continue
 		}
 		switch key {
 		case "cd":
-			cur.dir = scriptDir(val, baseDir)
+			cur.set.dir = scriptDir(val, cur.base)
 		case "title":
-			cur.title = cleanTitle(val)
+			cur.set.title = cleanTitle(val)
 		case "run":
-			cur.run = val
+			app := cur.set
+			app.line, app.run = n, val
+			apps = append(apps, app)
 		case "option", "options":
-			if err := cur.setOption(val); err != nil {
+			if err := cur.set.setOption(val); err != nil {
 				warn(n, "option %q: %v", val, err)
 			}
 		default:
 			warn(n, "unknown key %q: want cd, title, run or option", key)
 		}
 	}
+	for i := len(stack) - 1; i > 0; i-- {
+		warn(stack[i].line, "{ without a matching } (closed at the end of the file)")
+	}
 	return apps, warns
 }
 
-// scriptDir resolves a "cd:" directory: ~ is the home folder, a relative
-// path is relative to the script's folder.
-func scriptDir(d, baseDir string) string {
-	d = expandHome(d)
-	if d != "" && !filepath.IsAbs(d) {
-		d = filepath.Join(baseDir, d)
+// unquote removes one pair of quotes ("..." or '...') around a value, which
+// keeps spaces at its ends and lets it hold braces.
+func unquote(s string) string {
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] &&
+		!strings.ContainsRune(s[1:len(s)-1], rune(s[0])) { // not "a" "b"
+		return s[1 : len(s)-1]
 	}
-	return d
+	return s
 }
 
-// cleanTitle keeps a title to one line of printable text.
+// scriptDir resolves a "cd:" directory: ~ is the home folder, a relative
+// path is taken from base (the folder the block started in).
+func scriptDir(d, base string) string {
+	d = expandHome(d)
+	if !filepath.IsAbs(d) {
+		d = filepath.Join(base, d)
+	}
+	return filepath.Clean(d)
+}
+
+// cleanTitle keeps a title to one line of printable text (spaces kept:
+// quotes are how a title gets spaces at its ends).
 func cleanTitle(s string) string {
-	return strings.TrimSpace(strings.Map(func(r rune) rune {
+	return strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
 			return -1
 		}
 		return r
-	}, s))
+	}, s)
 }
 
 // setOption applies one "option: name: value".

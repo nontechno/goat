@@ -48,7 +48,7 @@ func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file (for diagnosing)")
 	keys := flag.Bool("keys", false, "show what each key press sends and what goat makes of it, then exit (Ctrl+C)")
 	doInstall := flag.Bool("install", false, "download goat's color and config files into ~/.config/goat, then exit")
-	scriptPath := flag.String("script", "", "launch script: open a window for each [app] in this file at startup")
+	scriptPath := flag.String("script", "", "launch script: open the windows this file describes at startup (see scripting.md)")
 	flag.Parse()
 	if *doInstall {
 		if err := install(os.Stdout); err != nil {
@@ -96,7 +96,7 @@ func main() {
 			os.Exit(1)
 		}
 		if len(apps) == 0 {
-			sw = append(sw, *scriptPath+": no [app] sections: nothing to launch")
+			sw = append(sw, *scriptPath+": no run: lines: nothing to launch")
 		}
 		script = launchScript{apps: apps, name: filepath.Base(*scriptPath)}
 		warns = append(warns, sw...)

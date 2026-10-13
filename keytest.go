@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/term"
@@ -25,6 +26,9 @@ func keyTest(cfg *Config, cfgPath string, warns []string, in *os.File, out io.Wr
 	}
 	fmt.Fprintf(out, "  mac_option_keys:  %q -> %v (os=%s TERM_PROGRAM=%q LC_TERMINAL=%q)\n",
 		cfg.MacOptionKeys, onOff(macOn), runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL"))
+	arrows := macOptionArrowsOn(cfg.MacOptionArrows, macOn, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL"))
+	fmt.Fprintf(out, "  mac_option_arrows: %q -> %v (Esc b / Esc f = Option+Left / Option+Right)\n",
+		cfg.MacOptionArrows, onOff(arrows))
 	fmt.Fprintf(out, "Press keys (e.g. Option/Alt+c). Ctrl+C ends.\n\n")
 
 	state, err := term.MakeRaw(in.Fd())
@@ -44,7 +48,7 @@ func keyTest(cfg *Config, cfgPath string, warns []string, in *os.File, out io.Wr
 			fmt.Fprint(out, "\r\n")
 			return nil
 		}
-		fmt.Fprintf(out, "% x  %-10q -> %s\r\n", b, string(b), describeKeyBytes(cfg, b, macOn))
+		fmt.Fprintf(out, "% x  %-10q -> %s\r\n", b, string(b), describeKeyBytes(cfg, b, macOn, arrows))
 	}
 }
 
@@ -56,7 +60,7 @@ func onOff(b bool) string {
 }
 
 // describeKeyBytes says how goat reads one read's worth of key bytes.
-func describeKeyBytes(cfg *Config, b []byte, macOn bool) string {
+func describeKeyBytes(cfg *Config, b []byte, macOn, arrows bool) string {
 	shortcut := func(r rune) string {
 		if r >= '0' && r <= '9' {
 			return "shortcut (focus window)"
@@ -67,6 +71,10 @@ func describeKeyBytes(cfg *Config, b []byte, macOn bool) string {
 		return "not a shortcut: goes to the program"
 	}
 	switch {
+	case arrows && len(b) == 2 && b[0] == 0x1b && (b[1] == 'b' || b[1] == 'f'):
+		dir := map[byte]string{'b': "Left", 'f': "Right"}[b[1]]
+		return fmt.Sprintf("Option+%s as macOS Terminal sends it (mac_option_arrows), shortcut: move %s",
+			dir, strings.ToLower(dir))
 	case len(b) == 2 && b[0] == 0x1b && b[1] >= 0x20 && b[1] < 0x7f:
 		return fmt.Sprintf("Alt+%c, %s", b[1], shortcut(rune(b[1])))
 	case len(b) >= 3 && b[0] == 0x1b && (b[1] == '[' || b[1] == 'O' || b[1] == 0x1b):
@@ -104,6 +112,18 @@ var scrollKeyNames = map[string]string{
 	"\x1b\x1b[6~": "Alt+PageDown (Esc prefix), shortcut: scroll forward a page",
 	"\x1b\x1b[H":  "Alt+Home (Esc prefix), shortcut: oldest line",
 	"\x1b\x1b[F":  "Alt+End (Esc prefix), shortcut: back to the live view",
+	"\x1b[1;3D":   "Alt+Left, shortcut: move left",
+	"\x1b[1;3C":   "Alt+Right, shortcut: move right",
+	"\x1b[1;3A":   "Alt+Up, shortcut: move up",
+	"\x1b[1;3B":   "Alt+Down, shortcut: move down",
+	"\x1b[1;4D":   "Alt+Shift+Left, shortcut: narrower",
+	"\x1b[1;4C":   "Alt+Shift+Right, shortcut: wider",
+	"\x1b[1;4A":   "Alt+Shift+Up, shortcut: shorter",
+	"\x1b[1;4B":   "Alt+Shift+Down, shortcut: taller",
+	"\x1b\x1b[D":  "Alt+Left (Esc prefix), shortcut: move left",
+	"\x1b\x1b[C":  "Alt+Right (Esc prefix), shortcut: move right",
+	"\x1b\x1b[A":  "Alt+Up (Esc prefix), shortcut: move up",
+	"\x1b\x1b[B":  "Alt+Down (Esc prefix), shortcut: move down",
 	"\x1b[5~":     "PageUp (no Alt: goes to the program)",
 	"\x1b[6~":     "PageDown (no Alt: goes to the program)",
 }

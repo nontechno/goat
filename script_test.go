@@ -11,66 +11,131 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The example script.txt (Windows line endings, a #! line, comments).
+// The example script2.txt (Windows line endings, a #! line, comments,
+// nested blocks): each run: gets the settings in effect where it is, and
+// the folders its comments expect.
 func TestParseExampleScript(t *testing.T) {
-	data, err := os.ReadFile("script.txt")
+	data, err := os.ReadFile("script2.txt")
 	if err != nil {
-		t.Skip("no script.txt")
+		t.Skip("no script2.txt")
 	}
-	apps, warns := parseScript(string(data), "/base", "script.txt")
+	apps, warns := parseScript(string(data), "/scripts", "script2.txt")
 	if len(warns) != 0 {
 		t.Fatalf("warnings: %v", warns)
 	}
-	if len(apps) != 2 {
-		t.Fatalf("%d apps", len(apps))
+	type want struct {
+		run, dir, title, theme string
+		wrap                   bool
 	}
-	a, b := apps[0], apps[1]
-	if a.dir != "/ddd/fff" || a.title != "aaaaaaa" || a.run != "./aaa -bbb -ccc" || a.wrap == nil || *a.wrap {
-		t.Fatalf("first: %+v", a)
+	wants := []want{
+		{"./aaa -bbb -ccc 111", "/111/222", "", "", false},
+		{"./aaa -bbb -ddd {{{ 222", "/111/222", "", "", false},
+		{"./aaa -bbb -ccc 333", "/111/333", "bbbbbbbb ", "dark", false},
+		{"./aaa -bbb -ccc 444", "/333", "", "dark", false},
+		{"./aaa -bbb -ccc 555", "/111", "", "", false},
 	}
-	if b.dir != "/ddd/ggg" || b.title != "bbbbbbbb" || b.run != "./bbb -aaa -ccc" || b.wrap == nil || !*b.wrap || b.theme != "dark" {
-		t.Fatalf("second: %+v", b)
+	if len(apps) != len(wants) {
+		t.Fatalf("%d windows: %+v", len(apps), apps)
+	}
+	for i, w := range wants {
+		a := apps[i]
+		if a.run != w.run || a.dir != w.dir || a.title != w.title || a.theme != w.theme ||
+			a.wrap == nil || *a.wrap != w.wrap {
+			t.Errorf("window %d: run %q dir %q title %q theme %q wrap %v; want %+v",
+				i+1, a.run, a.dir, a.title, a.theme, a.wrap, w)
+		}
 	}
 }
 
-func TestParseScriptOptionsAndProblems(t *testing.T) {
+// Settings last to the end of their block; inner blocks inherit and may
+// override; a relative cd: is taken from where the block began.
+func TestParseScriptBlocks(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	apps, warns := parseScript(`
-title: too early
-[app]
+run: top
 cd: logs
-cd: ~/x
+option: wrap: off
 option: size: 100x30
-option: pos: 3,4
-option: frame: none
-option: pin: on
-option: focus: yes
-option: hold: on
-option: bg: Midnight
-option: fg: #ffd700
-option: color: red
-option: wrap: maybe
-colour: x
-[settings]
-cd: /nowhere
-[app]
-cd: logs
-option theme dark
+{
+	cd: a
+	cd: b
+	title: inner
+	option: wrap: on
+	run: one
+	{
+		cd: ../c
+		option: theme: light
+		run: two
+	}
+	run: three
+}
+run: four
+cd: ~/x
+run:
 `, "/scripts", "s")
-	if len(apps) != 2 {
-		t.Fatalf("%d apps", len(apps))
+	if len(warns) != 0 {
+		t.Fatal(warns)
 	}
-	a := apps[0]
-	if a.dir != filepath.Join(home, "x") || a.cols != 100 || a.rows != 30 || !a.hasPos || a.x != 3 || a.y != 4 ||
-		a.frame == nil || *a.frame != frameNone || !a.pin || !a.focus || a.hold != holdAlways ||
-		a.bg != "Midnight" || a.fg != "#ffd700" || a.wrap != nil {
-		t.Fatalf("first: %+v", a)
+	type want struct {
+		run, dir, title, theme string
+		wrap                   string // "", "on", "off"
 	}
-	if apps[1].dir != "/scripts/logs" { // relative to the script's folder
-		t.Fatalf("relative cd: %q", apps[1].dir)
+	wrapOf := func(a appSpec) string {
+		switch {
+		case a.wrap == nil:
+			return ""
+		case *a.wrap:
+			return "on"
+		}
+		return "off"
 	}
-	want := []string{"s:2:", "s:14: option \"color: red\"", "s:15: option \"wrap: maybe\"", "s:16: unknown key \"colour\"",
-		"s:17: unknown section [settings]", "s:21:"}
+	wants := []want{
+		{"top", "", "", "", ""},                            // nothing set yet: goat's folder
+		{"one", "/scripts/logs/b", "inner", "", "on"},      // cd: b replaces cd: a, both from /scripts/logs
+		{"two", "/scripts/logs/c", "inner", "light", "on"}, // ../c from /scripts/logs/b
+		{"three", "/scripts/logs/b", "inner", "", "on"},    // the inner block's changes are gone
+		{"four", "/scripts/logs", "", "", "off"},           // and the outer block's
+		{"", filepath.Join(home, "x"), "", "", "off"},      // run: alone: a shell
+	}
+	if len(apps) != len(wants) {
+		t.Fatalf("%d windows", len(apps))
+	}
+	for i, w := range wants {
+		a := apps[i]
+		if a.run != w.run || a.dir != w.dir || a.title != w.title || a.theme != w.theme || wrapOf(a) != w.wrap {
+			t.Errorf("window %d: run %q dir %q title %q theme %q wrap %q; want %+v",
+				i+1, a.run, a.dir, a.title, a.theme, wrapOf(a), w)
+		}
+		if a.cols != 100 || a.rows != 30 {
+			if i > 0 { // set after the first run:
+				t.Errorf("window %d: size %dx%d", i+1, a.cols, a.rows)
+			}
+		}
+	}
+}
+
+func TestParseScriptQuotesAndProblems(t *testing.T) {
+	apps, warns := parseScript(`
+title: "  spaced  "
+run: "echo {}"
+run: "my tool" --name "x y"
+run: 'single {'
+}
+[app]
+colour: red
+option: wrap: maybe
+option: color: red
+{
+run: inside
+`, "/", "s")
+	if len(apps) != 4 {
+		t.Fatalf("%d windows", len(apps))
+	}
+	if apps[0].title != "  spaced  " || apps[0].run != "echo {}" || apps[1].run != `"my tool" --name "x y"` || apps[2].run != "single {" {
+		t.Fatalf("quotes: %q %q %q %q", apps[0].title, apps[0].run, apps[1].run, apps[2].run)
+	}
+	want := []string{"s:6: } without", "s:7: \"[app]\"", "s:8: unknown key \"colour\"",
+		"s:9: option \"wrap: maybe\"", "s:10: option \"color: red\"", "s:11: { without"}
 	if len(warns) != len(want) {
 		t.Fatalf("warnings: %q", warns)
 	}
@@ -78,6 +143,9 @@ option theme dark
 		if !strings.HasPrefix(warns[i], w) {
 			t.Errorf("warning %d: %q, want %s...", i, warns[i], w)
 		}
+	}
+	if !strings.Contains(warns[1], "[sections] aren't used") {
+		t.Errorf("no hint for the old format: %q", warns[1])
 	}
 }
 
@@ -129,26 +197,27 @@ func TestLaunchApps(t *testing.T) {
 	m := wmForScript(t)
 	dirA, dirB := t.TempDir(), t.TempDir()
 	apps, warns := parseScript(`
-[app]
-cd: `+dirA+`
-title: first
-run: echo "in $(pwd)"; sleep 30
-option: wrap: off
 option: theme: light
-option: size: 60x12
-option: pos: 5,3
-
-[app]
-cd: `+dirB+`
-title: second
-run: sleep 30
-option: wrap: on
-option: theme: light
-option: focus: on
-option: pin: on
-
-[app]
-cd: /no/such/folder
+{
+	cd: `+dirA+`
+	title: first
+	option: wrap: off
+	option: size: 60x12
+	option: pos: 5,3
+	run: echo "in $(pwd)"; sleep 30
+}
+{
+	cd: `+dirB+`
+	title: second
+	option: wrap: on
+	option: focus: on
+	option: pin: on
+	run: sleep 30
+}
+{
+	cd: /no/such/folder
+	run:
+}
 `, "/", "test.script")
 	if len(warns) != 0 {
 		t.Fatal(warns)
@@ -203,13 +272,10 @@ cd: /no/such/folder
 func TestLaunchedAppHold(t *testing.T) {
 	m := wmForScript(t)
 	apps, _ := parseScript(`
-[app]
 run: echo oops; exit 3
-[app]
 run: true
-[app]
-run: echo done
 option: hold: on
+run: echo done
 `, "/", "s")
 	m.launchApps(apps, "s")
 	failed, ok, kept := m.windows[0], m.windows[1], m.windows[2]

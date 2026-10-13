@@ -48,6 +48,7 @@ type WM struct {
 	warnings      []string
 	cols, rows    int
 	macOption     bool   // treat macOS Option characters as Alt+key (mac_option_keys)
+	optionArrows  bool   // Esc b / Esc f are Option+Left / Right (mac_option_arrows)
 	home          string // $HOME, shown as ~ in the status bar
 	host          string // shown in window frames (show_host); "" = none
 	user          string // goat's own user name (show_user)
@@ -174,6 +175,9 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		home:      os.Getenv("HOME"),
 		palette:   cfg.palette,
 		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
+		optionArrows: macOptionArrowsOn(cfg.MacOptionArrows,
+			macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
+			os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
 	}
 }
 
@@ -610,6 +614,13 @@ func pick[T any](cond bool, a, b T) T {
 }
 
 func (m *WM) handleKey(k uv.Key) error {
+	// macOS Terminal: Option+Left / Option+Right arrive as Esc b / Esc f.
+	// (Esc then b typed by hand comes as two keys: still Alt+b.)
+	if m.optionArrows && !m.pasting && !m.escPending {
+		if k2, ok := optionArrowKey(k); ok {
+			k = k2
+		}
+	}
 	if m.quitAsk != nil && !m.pasting {
 		m.quitDialogKey(k)
 		return nil

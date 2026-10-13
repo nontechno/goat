@@ -35,6 +35,16 @@ alt_timeout_ms = 200
 #   "on" / "off"
 mac_option_keys = "on"
 
+# macOS Terminal sends Option+Left / Option+Right as Esc b / Esc f, the same
+# as Alt+b / Alt+f (word left / right in a shell), so they would change the
+# window's colors instead of moving it. With this on they move the window;
+# Alt+b / Alt+f stay available as Option+b / Option+f (with mac_option_keys)
+# and as Esc then b / f.
+#   "auto" - on in macOS Terminal, also over SSH when mac_option_keys is on
+#            and the terminal doesn't say it's another one (iTerm2 does)
+#   "on" / "off"
+mac_option_arrows = "auto"
+
 # Lines of history kept per window. Scroll with the mouse wheel,
 # Alt+PageUp / Alt+PageDown (a page), Alt+Shift+PageUp / PageDown (3 lines),
 # Alt+Home (oldest line) and Alt+End (live view); typing returns to the live

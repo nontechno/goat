@@ -142,6 +142,11 @@ understands those characters as the shortcuts they stand for
 SSH from a Mac). Option+n can't work that way, because macOS holds it back as
 an accent key; use Meta, or `Esc` then `n`.
 
+macOS Terminal also sends Option+←/→ as Esc b / Esc f, the same bytes as
+Alt+b / Alt+f. goat reads them as Option+←/→ (move the window) there
+(`mac_option_arrows`, automatic in macOS Terminal and over SSH from it;
+iTerm2 sends real Alt+arrow keys).
+
 If shortcuts don't work, run `goat -keys`: it shows which config file is in
 use, whether `mac_option_keys` is on, and for each key you press the bytes
 the terminal sends and what goat makes of them.
@@ -194,54 +199,42 @@ used.
 
 ## Launch scripts
 
-`goat -script FILE` (or `--script`) opens a window for each app listed in
-FILE when goat starts. [scripting.md](scripting.md) has the full
-description, with examples:
+`goat -script FILE` (or `--script`) opens windows when goat starts, as FILE
+describes. [scripting.md](scripting.md) has the full description, with
+examples:
 
 ```
-#!/usr/bin/env goat
-# comments and empty lines are ignored
-
-[app]
-cd: ~/src/project/logs
-title: logs
-run: tail -f app.log
-option: wrap: off
-option: theme: dark
-
-[app]
+#!/usr/bin/env -S goat -script
+# comments are whole lines starting with #
 cd: ~/src/project
-title: build
-run: make watch
-option: focus: on
+option: wrap: off
+
+{
+	cd: logs
+	title: logs
+	option: theme: dark
+	run: tail -f app.log
+}
+{
+	title: build
+	option: focus: on
+	run: make watch
+}
+run:
 ```
 
-Each `[app]` is one window:
-
-- `cd:` its working directory (`~` is your home folder; a relative path is
-  relative to the script's folder). Without it: the folder goat started in.
-- `title:` the window's title, instead of the program's name.
-- `run:` the program and its arguments, run by your shell (`$SHELL -c`), so
-  quotes, `~`, `$VAR` and `./relative` paths work. Without it: a shell.
-- `option: NAME: VALUE`, one per line:
-
-| Option | Values | |
-|---|---|---|
-| `wrap` | `on` / `off` | long lines wrap, or run past the edge |
-| `theme` | `dark` / `light` | a background of that tone (each window that asks gets the next one) |
-| `bg`, `fg` | a name from the `.color` files, `0`-`255` or `#rrggbb` | background / text color |
-| `frame` | `full` / `compact` / `none` | this window's frame |
-| `size` | `COLSxROWS`, e.g. `100x30` | window size, frame included |
-| `pos` | `X,Y`, e.g. `10,2` | top-left corner |
-| `pin` | `on` / `off` | keep above other windows |
-| `focus` | `on` | this window has the focus (otherwise the last one) |
-| `hold` | `failed` (default) / `on` / `off` | keep the window open when the program ends: only if it failed, always, never. It then shows how the program ended; Enter closes it |
-
-Text colors are checked as with Alt+f: one that wouldn't show on the
-background is replaced (and reported). Problems in the script (an unknown
-option, a missing folder, ...) are shown in the status bar and the events
-window (Alt+-); the apps that make sense still start. A script that can't be
-read stops goat before it starts.
+- `run:` opens a window running a command through your shell (empty: a
+  shell), with the settings in effect at that line.
+- Settings (`cd:`, `title:`, `option: NAME: VALUE`) hold from their line to
+  the end of their block.
+- `{` … `}` make a block: settings made inside apply only there and in
+  blocks inside it.
+- A relative `cd:` is taken from the folder the block started in; outside
+  any block, from the script's folder.
+- Values in quotes keep their spaces and braces.
+- Options: `wrap`, `theme`, `bg`, `fg`, `frame`, `size`, `pos`, `pin`,
+  `focus` and `hold`.
+- A program that fails keeps its window open showing why; Enter closes it.
 
 ## Log
 

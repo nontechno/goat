@@ -146,6 +146,12 @@ type Config struct {
 	// is a shortcut, "off" never does, "auto" = on when running on macOS or
 	// in Terminal.app / iTerm2.
 	MacOptionKeys string `toml:"mac_option_keys"`
+	// macOS Terminal sends Esc b / Esc f for Option+Left / Option+Right
+	// (the same as Alt+b / Alt+f). "on" takes them as Alt+Left / Alt+Right
+	// (move the window), "off" as Alt+b / Alt+f, "auto" = on in macOS
+	// Terminal (also over ssh with mac_option_keys on, unless the terminal
+	// says it is another one, as iTerm2 does with LC_TERMINAL).
+	MacOptionArrows string `toml:"mac_option_arrows"`
 	// Unused (goat is event driven); accepted for float compatibility.
 	PollIntervalMs int `toml:"poll_interval_ms"`
 
@@ -202,6 +208,7 @@ func DefaultConfig() *Config {
 	c := &Config{
 		AltTimeoutMs:    200,
 		MacOptionKeys:   "auto",
+		MacOptionArrows: "auto",
 		PollIntervalMs:  16,
 		ScrollbackLines: 1000,
 		WrapLines:       true,
@@ -381,6 +388,12 @@ func (c *Config) finish(md *toml.MetaData) []string {
 	default:
 		warn("mac_option_keys = %q: use \"auto\", \"on\" or \"off\" (using \"auto\")", c.MacOptionKeys)
 		c.MacOptionKeys = "auto"
+	}
+	switch c.MacOptionArrows {
+	case "auto", "on", "off":
+	default:
+		warn("mac_option_arrows = %q: use \"auto\", \"on\" or \"off\" (using \"auto\")", c.MacOptionArrows)
+		c.MacOptionArrows = "auto"
 	}
 	return warns
 }
