@@ -48,6 +48,7 @@ func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile to this file (for diagnosing)")
 	keys := flag.Bool("keys", false, "show what each key press sends and what goat makes of it, then exit (Ctrl+C)")
 	doInstall := flag.Bool("install", false, "download goat's color and config files into ~/.config/goat, then exit")
+	doLearn := flag.Bool("learn", false, "find out how this terminal sends goat's keys (press a few when asked), save it in local.toml, then exit")
 	scriptPath := flag.String("script", "", "launch script: open the windows this file describes at startup (see scripting.md)")
 	flag.Parse()
 	if *doInstall {
@@ -69,6 +70,13 @@ func main() {
 	}
 
 	cfg, usedPath, warns := LoadConfig(*cfgPath)
+	if *doLearn {
+		if err := learn(cfg, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "goat -learn:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *keys {
 		if err := keyTest(cfg, usedPath, warns, os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "goat:", err)
@@ -209,6 +217,13 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	}
 	m := newWM(cfg, warns, cols, rows)
 	m.localPath, m.desk, m.deskKnown = localPath, desk, deskKnown
+	termID := terminalID()
+	if prof, ok, pw := readTermProfile(localPath, termID); ok {
+		m.applyTermProfile(prof)
+		logger.Info("terminal profile", "terminal", termID, "mac_option_keys", prof.MacOptionKeys, "remap", prof.Remap)
+	} else if pw != "" {
+		m.logEvent(nil, evConfig, pw)
+	}
 	if p := m.palette; p != nil {
 		logger.Info("colors", "backgrounds", len(p.bgs),
 			"text_for_dark", len(p.fgs[toneDark]), "text_for_light", len(p.fgs[toneLight]))

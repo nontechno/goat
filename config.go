@@ -149,8 +149,7 @@ type Config struct {
 	// macOS Terminal sends Esc b / Esc f for Option+Left / Option+Right
 	// (the same as Alt+b / Alt+f). "on" takes them as Alt+Left / Alt+Right
 	// (move the window), "off" as Alt+b / Alt+f, "auto" = on in macOS
-	// Terminal (also over ssh with mac_option_keys on, unless the terminal
-	// says it is another one, as iTerm2 does with LC_TERMINAL).
+	// Terminal until an Alt+letter arrives as Esc + letter (Option as Meta).
 	MacOptionArrows string `toml:"mac_option_arrows"`
 	// Unused (goat is event driven); accepted for float compatibility.
 	PollIntervalMs int `toml:"poll_interval_ms"`

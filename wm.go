@@ -47,15 +47,20 @@ type WM struct {
 	contrastCache map[contrastKey]color.Color
 	warnings      []string
 	cols, rows    int
-	macOption     bool   // treat macOS Option characters as Alt+key (mac_option_keys)
-	optionArrows  bool   // Esc b / Esc f are Option+Left / Right (mac_option_arrows)
-	home          string // $HOME, shown as ~ in the status bar
-	host          string // shown in window frames (show_host); "" = none
-	user          string // goat's own user name (show_user)
-	identOn       bool   // poll window identities (show_user/show_host; set at start)
-	identOut      chan identMsg
-	userNames     map[int]string
-	hostChecked   time.Time
+	macOption     bool // treat macOS Option characters as Alt+key (mac_option_keys)
+	optionArrows  bool // Esc b / Esc f are Option+Left / Right (mac_option_arrows)
+	arrowsLearn   bool // still finding out which (mac_option_arrows = "auto")
+	// From the terminal's profile learned by goat -learn (local.toml):
+	keyRemap    map[string]uv.Key // keys the terminal sends differently
+	plainIdent  bool              // frames show user@host (no 2-column emoji)
+	profiled    bool              // a profile is in use
+	home        string            // $HOME, shown as ~ in the status bar
+	host        string            // shown in window frames (show_host); "" = none
+	user        string            // goat's own user name (show_user)
+	identOn     bool              // poll window identities (show_user/show_host; set at start)
+	identOut    chan identMsg
+	userNames   map[int]string
+	hostChecked time.Time
 
 	windows []*Window // z-order, bottom first; pinned windows sit on top
 	focused *Window
@@ -164,7 +169,7 @@ func (m *WM) startBackground() error {
 }
 
 func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
-	return &WM{
+	m := &WM{
 		cfg: cfg, warnings: warnings, cols: cols, rows: rows,
 		// A short queue: when programs write faster than goat can parse,
 		// the PTY fills and slows them down (like any terminal), instead of
@@ -175,10 +180,9 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		home:      os.Getenv("HOME"),
 		palette:   cfg.palette,
 		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
-		optionArrows: macOptionArrowsOn(cfg.MacOptionArrows,
-			macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
-			os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
 	}
+	m.optionArrows, m.arrowsLearn = macOptionArrowsOn(cfg.MacOptionArrows, os.Getenv("TERM_PROGRAM"))
+	return m
 }
 
 // ---- z-order ---------------------------------------------------------------
@@ -613,9 +617,33 @@ func pick[T any](cond bool, a, b T) T {
 	return b
 }
 
+// learnOptionArrows works out, in macOS Terminal, whether Esc b / Esc f are
+// Option+Left / Option+Right (Option types characters: the default) or
+// Alt+b / Alt+f ("Use Option as Meta key" is on: then Option+letters arrive
+// as Esc + letter too). Any other Alt+letter arriving as Esc + letter means
+// Meta is on; an Option character (ç, ∫, ...) means it is off.
+func (m *WM) learnOptionArrows(k uv.Key) {
+	if r, ok := bindingRune(k); ok && k.Mod.Contains(uv.ModAlt) && r != 'b' && r != 'f' {
+		m.optionArrows, m.arrowsLearn = false, false
+		logger.Info("macOS Terminal sends Option as Meta: Esc b / Esc f are Alt+b / Alt+f")
+		return
+	}
+	if _, ok := macOptionKey(k); ok {
+		m.arrowsLearn = false // Option types characters: Esc b / Esc f are arrows
+		logger.Info("macOS Terminal types Option characters: Esc b / Esc f are Option+Left / Right")
+	}
+}
+
 func (m *WM) handleKey(k uv.Key) error {
+	// Keys this terminal sends differently, as goat -learn found out.
+	if !m.pasting && !m.escPending {
+		k = m.remapKey(k)
+	}
 	// macOS Terminal: Option+Left / Option+Right arrive as Esc b / Esc f.
 	// (Esc then b typed by hand comes as two keys: still Alt+b.)
+	if m.arrowsLearn && !m.pasting && !m.escPending {
+		m.learnOptionArrows(k)
+	}
 	if m.optionArrows && !m.pasting && !m.escPending {
 		if k2, ok := optionArrowKey(k); ok {
 			k = k2

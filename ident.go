@@ -92,6 +92,9 @@ func (m *WM) frameLabel(w *Window) string {
 	if id == (identity{}) {
 		id = m.localIdent()
 	}
+	if m.plainIdent { // the terminal can't draw the emoji (goat -learn)
+		return id.label(m.cfg.ShowUser, m.cfg.ShowHost)
+	}
 	return id.frameText(m.cfg.ShowUser, m.cfg.ShowHost)
 }
 

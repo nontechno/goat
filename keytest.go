@@ -26,9 +26,26 @@ func keyTest(cfg *Config, cfgPath string, warns []string, in *os.File, out io.Wr
 	}
 	fmt.Fprintf(out, "  mac_option_keys:  %q -> %v (os=%s TERM_PROGRAM=%q LC_TERMINAL=%q)\n",
 		cfg.MacOptionKeys, onOff(macOn), runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL"))
-	arrows := macOptionArrowsOn(cfg.MacOptionArrows, macOn, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL"))
-	fmt.Fprintf(out, "  mac_option_arrows: %q -> %v (Esc b / Esc f = Option+Left / Option+Right)\n",
-		cfg.MacOptionArrows, onOff(arrows))
+	arrows, learn := macOptionArrowsOn(cfg.MacOptionArrows, os.Getenv("TERM_PROGRAM"))
+	note := ""
+	if learn {
+		note = "; off as soon as another Alt+letter arrives as Esc+letter (Option as Meta)"
+	}
+	fmt.Fprintf(out, "  mac_option_arrows: %q -> %v (Esc b / Esc f = Option+Left / Option+Right%s)\n",
+		cfg.MacOptionArrows, onOff(arrows), note)
+	id := terminalID()
+	prof, profiled, _ := readTermProfile(localConfigPath(), id)
+	if profiled {
+		fmt.Fprintf(out, "  terminal:         %s, learned profile in local.toml (it replaces the \"auto\" guesses above)\n", id)
+		if cfg.MacOptionKeys == "auto" && prof.MacOptionKeys != "" {
+			macOn = prof.MacOptionKeys == "on"
+		}
+		if cfg.MacOptionArrows == "auto" {
+			arrows, learn = false, false
+		}
+	} else {
+		fmt.Fprintf(out, "  terminal:         %s, no learned profile (goat -learn makes one)\n", id)
+	}
 	fmt.Fprintf(out, "Press keys (e.g. Option/Alt+c). Ctrl+C ends.\n\n")
 
 	state, err := term.MakeRaw(in.Fd())
@@ -47,6 +64,16 @@ func keyTest(cfg *Config, cfgPath string, warns []string, in *os.File, out io.Wr
 		if n == 1 && b[0] == 0x03 {
 			fmt.Fprint(out, "\r\n")
 			return nil
+		}
+		if learn && len(b) == 2 && b[0] == 0x1b && b[1] > 0x20 && b[1] < 0x7f && b[1] != 'b' && b[1] != 'f' {
+			arrows, learn = false, false
+			fmt.Fprint(out, "  (Option is sent as Meta: Esc b / Esc f now count as Alt+b / Alt+f)\r\n")
+		}
+		if profiled {
+			if to, ok := prof.Remap[decodeKey(b)]; ok {
+				fmt.Fprintf(out, "% x  %-10q -> learned: read as %s\r\n", b, string(b), to)
+				continue
+			}
 		}
 		fmt.Fprintf(out, "% x  %-10q -> %s\r\n", b, string(b), describeKeyBytes(cfg, b, macOn, arrows))
 	}

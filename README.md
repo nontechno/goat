@@ -144,9 +144,23 @@ SSH from a Mac). Option+n can't work that way, because macOS holds it back as
 an accent key; use Meta, or `Esc` then `n`.
 
 macOS Terminal also sends Option+←/→ as Esc b / Esc f, the same bytes as
-Alt+b / Alt+f. goat reads them as Option+←/→ (move the window) there
-(`mac_option_arrows`, automatic in macOS Terminal and over SSH from it;
-iTerm2 sends real Alt+arrow keys).
+Alt+b / Alt+f. In macOS Terminal goat reads them as Option+←/→ (move the
+window), unless Option is sent as Meta (an Alt shortcut arrives as Esc +
+letter): then they are Alt+b / Alt+f (`mac_option_arrows`). Elsewhere Esc b
+/ Esc f are always Alt+b / Alt+f. iTerm2 sends real Alt+arrow keys.
+
+**Teach goat your terminal: `goat -learn`.** It asks you to press eight
+keys (Alt+c, Alt+b, Alt+f, the Alt+arrows and Alt+Shift+Left; Option on a
+Mac), works out how this terminal sends them, and saves that in
+`~/.config/goat/local.toml` under `[terminal."NAME"]`, one section per
+terminal (macOS Terminal and iTerm2 each get their own). When two keys send
+the same thing (macOS Terminal with *Use Option as Meta key*: Option+← and
+Option+b), it asks which one you want. It also checks whether the terminal
+draws the frame's 🧑 / 💻 two columns wide, and falls back to `user@host` if
+not. From then on goat follows the profile in that terminal instead of
+guessing (`mac_option_keys` / `mac_option_arrows` "auto"; explicit "on" /
+"off" in config.toml still win). Run it again after changing the terminal's
+keyboard settings.
 
 If shortcuts don't work, run `goat -keys`: it shows which config file is in
 use, whether `mac_option_keys` is on, and for each key you press the bytes

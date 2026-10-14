@@ -30,6 +30,8 @@ alt_timeout_ms = 200
 # that aren't shortcuts are still typed. Option+n (and e, i, u, `) can't work
 # this way: macOS holds them back as accents. Use Esc then n, or turn on
 # Option as Meta key.
+# (goat -learn finds this out for your terminal and saves it in local.toml;
+# that replaces "auto".)
 #   "auto" - on when goat runs on macOS or in Terminal.app / iTerm2
 #            (over SSH that usually can't be detected: set "on")
 #   "on" / "off"
@@ -40,9 +42,16 @@ mac_option_keys = "on"
 # window's colors instead of moving it. With this on they move the window;
 # Alt+b / Alt+f stay available as Option+b / Option+f (with mac_option_keys)
 # and as Esc then b / f.
-#   "auto" - on in macOS Terminal, also over SSH when mac_option_keys is on
-#            and the terminal doesn't say it's another one (iTerm2 does)
+# (goat -learn finds this out, and saves it in local.toml; that replaces
+# "auto".)
+#   "auto" - on in macOS Terminal (TERM_PROGRAM=Apple_Terminal) until an
+#            Alt+letter shortcut arrives as Esc + letter: then "Use Option as
+#            Meta key" is on, Option+b itself sends Esc b, and Esc b / Esc f
+#            go back to being Alt+b / Alt+f. Off everywhere else.
 #   "on" / "off"
+# With "Use Option as Meta key" on, Option+Left and Option+b send the same
+# bytes; to have both, change Option+Left / Right in Terminal's Settings ->
+# Profiles -> Keyboard to send \033[1;3D / \033[1;3C.
 mac_option_arrows = "auto"
 
 # Lines of history kept per window. Scroll with the mouse wheel,

@@ -215,20 +215,20 @@ func macOptionKey(k uv.Key) (uv.Key, bool) {
 
 // macOptionArrowsOn resolves the mac_option_arrows setting: whether Esc b /
 // Esc f from the terminal are Option+Left / Option+Right, as macOS Terminal
-// sends them. "auto": in macOS Terminal; or, with Option characters taken as
-// shortcuts (macOn, e.g. mac_option_keys = "on" over ssh), in a terminal that
-// doesn't say what it is (iTerm2 does, with LC_TERMINAL, even over ssh).
-func macOptionArrowsOn(setting string, macOn bool, termProgram, lcTerminal string) bool {
+// sends them, rather than Alt+b / Alt+f. "auto" starts on in macOS Terminal
+// only (TERM_PROGRAM=Apple_Terminal), and keeps watching (learn): the keys
+// typed show which way the terminal sends Option (see WM.learnOptionArrows).
+func macOptionArrowsOn(setting, termProgram string) (on, learn bool) {
 	switch setting {
 	case "on":
-		return true
+		return true, false
 	case "off":
-		return false
+		return false, false
 	}
 	if termProgram == "Apple_Terminal" {
-		return true
+		return true, true
 	}
-	return macOn && termProgram == "" && lcTerminal == ""
+	return false, false
 }
 
 // optionArrowKey turns the Alt+b / Alt+f macOS Terminal sends for

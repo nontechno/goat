@@ -9,23 +9,56 @@ import (
 
 func TestMacOptionArrowsOn(t *testing.T) {
 	for _, tc := range []struct {
-		setting           string
-		macOn             bool
-		termProgram, lcTm string
-		want              bool
+		setting, termProgram string
+		on, learn            bool
 	}{
-		{"auto", false, "Apple_Terminal", "", true}, // macOS Terminal, on the Mac
-		{"auto", true, "", "", true},                // over ssh, mac_option_keys on, terminal unknown
-		{"auto", true, "", "iTerm2", false},         // iTerm2 over ssh (LC_TERMINAL)
-		{"auto", true, "iTerm.app", "iTerm2", false},
-		{"auto", false, "", "", false}, // not a Mac
-		{"auto", false, "WezTerm", "", false},
-		{"on", false, "iTerm.app", "iTerm2", true},
-		{"off", true, "Apple_Terminal", "", false},
+		{"auto", "Apple_Terminal", true, true}, // macOS Terminal: on, still watching
+		{"auto", "", false, false},             // unknown (ssh, Linux, Windows): Alt+b is Alt+b
+		{"auto", "iTerm.app", false, false},
+		{"auto", "WezTerm", false, false},
+		{"on", "iTerm.app", true, false},
+		{"off", "Apple_Terminal", false, false},
 	} {
-		if got := macOptionArrowsOn(tc.setting, tc.macOn, tc.termProgram, tc.lcTm); got != tc.want {
-			t.Errorf("%+v: %v", tc, got)
+		on, learn := macOptionArrowsOn(tc.setting, tc.termProgram)
+		if on != tc.on || learn != tc.learn {
+			t.Errorf("%+v: on %v learn %v", tc, on, learn)
 		}
+	}
+}
+
+// macOS Terminal with "Use Option as Meta key": Option+c arrives as Esc c,
+// which shows Esc b is Option+b, not Option+Left: Alt+b changes colors.
+func TestOptionArrowsLearnMeta(t *testing.T) {
+	m, _, _, w := wmWithBackground(t)
+	m.palette = fullPalette(t)
+	m.optionArrows, m.arrowsLearn = true, true
+	_ = m.handleKey(uv.Key{Code: 'n', Mod: uv.ModAlt}) // Esc n: Option as Meta
+	if m.optionArrows || m.arrowsLearn {
+		t.Fatalf("still taking Esc b as an arrow: %v %v", m.optionArrows, m.arrowsLearn)
+	}
+	w = m.focused
+	x := w.x
+	_ = m.handleKey(uv.Key{Code: 'b', Mod: uv.ModAlt})
+	if w.x != x || w.bgColor == nil {
+		t.Fatalf("Alt+b moved the window (x %d -> %d) or kept the colors (%v)", x, w.x, w.bgColor)
+	}
+}
+
+// Without Meta, Option+letters type characters: one of those settles it the
+// other way, and Esc b stays Option+Left even after other keys.
+func TestOptionArrowsLearnCharacters(t *testing.T) {
+	m, _, _, w := wmWithBackground(t)
+	m.palette = fullPalette(t)
+	m.optionArrows, m.arrowsLearn, m.macOption = true, true, true
+	_ = m.handleKey(uv.Key{Code: '∫', Text: "∫"}) // Option+b without Meta
+	if !m.optionArrows || m.arrowsLearn {
+		t.Fatalf("after ∫: on %v learn %v", m.optionArrows, m.arrowsLearn)
+	}
+	_ = m.handleKey(uv.Key{Code: 'y', Mod: uv.ModAlt}) // decided: no change (Alt+y isn't bound)
+	x := w.x
+	_ = m.handleKey(uv.Key{Code: 'b', Mod: uv.ModAlt})
+	if w.x != x-1 {
+		t.Fatalf("Option+Left didn't move the window: %d -> %d", x, w.x)
 	}
 }
 
