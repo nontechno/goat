@@ -24,7 +24,7 @@ func TestNoWrap(t *testing.T) {
 	bottom := func() string { return render(m)[w.y+w.h-1] }
 	row := func(r int) string { return render(m)[w.contentY()+r] }
 
-	if !strings.Contains(bottom(), " wrap ") {
+	if !strings.Contains(bottom(), " w ") {
 		t.Fatalf("indicator: %q", bottom())
 	}
 
@@ -32,7 +32,7 @@ func TestNoWrap(t *testing.T) {
 	if !w.nowrap || w.emu.Width() != 512 {
 		t.Fatalf("toggle: nowrap=%v width=%d", w.nowrap, w.emu.Width())
 	}
-	if !strings.Contains(bottom(), " nowrap ") {
+	if !strings.Contains(bottom(), " > ") {
 		t.Fatalf("indicator: %q", bottom())
 	}
 	_, _ = w.emu.Write([]byte(long + "\r\nnext"))
@@ -50,7 +50,7 @@ func TestNoWrap(t *testing.T) {
 	if !strings.Contains(row(0), long[cw/2:cw/2+cw]) {
 		t.Fatalf("scrolled row 0 %q", row(0))
 	}
-	if !strings.Contains(bottom(), "nowrap +14") {
+	if !strings.Contains(bottom(), "> +14") {
 		t.Fatalf("indicator with offset: %q", bottom())
 	}
 

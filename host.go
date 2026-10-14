@@ -83,7 +83,7 @@ func cleanHostName(s string) string {
 }
 
 // drawHost writes the host name into the left of the bottom border:
-// └─ myhost ─────── wrap ─┘. When the window is too narrow for all of it,
+// └─ 🧑alice 💻myhost ─────── w ─┘. When the window is too narrow for all of it,
 // the name is shortened (keeping at least 4 columns) or left out; it never
 // covers the wrap indicator.
 func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
@@ -97,7 +97,7 @@ func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
 	start := w.x + 2       // └─␠host
 	limit := w.x + w.w - 2 // stop before ─┘
 	label := " " + wrapLabel(w) + " "
-	if wx := w.x + w.w - 2 - len(label); wx >= w.x+2 {
+	if wx := w.x + w.w - 2 - textWidth(label); wx >= w.x+2 {
 		limit = wx - 1 // keep one ─ between the host and the wrap label
 	}
 	maxW := limit - start - 2 // the spaces around the name
@@ -105,9 +105,10 @@ func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
 		return
 	}
 	cs := textCells(name, st, maxW)
-	// A name cut to a few characters says nothing: show at least 4 columns
-	// (or the whole name, when it is shorter), or nothing.
-	if w := cellsWidth(cs); w == 0 || (w < 4 && w < cellsWidth(textCells(name, st, 1<<20))) {
+	// A name cut to a few characters says nothing: show at least 6 columns
+	// (the 💻 / 🧑 symbol and 4 characters; or the whole label, when it is
+	// shorter), or nothing.
+	if w := cellsWidth(cs); w == 0 || (w < 6 && w < textWidth(name)) {
 		return
 	}
 	y := w.y + w.h - 1

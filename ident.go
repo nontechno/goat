@@ -35,6 +35,26 @@ type identity struct {
 }
 
 // label is what the frame shows.
+// Symbols for the window frame's identity label: 🧑alice 💻myhost.
+const (
+	userSymbol = "🧑"
+	hostSymbol = "💻"
+)
+
+// frameText is the identity as the window frame shows it: "🧑user 💻host"
+// (or just one of them, per show_user / show_host).
+func (id identity) frameText(showUser, showHost bool) string {
+	var parts []string
+	if showUser && id.user != "" {
+		parts = append(parts, userSymbol+id.user)
+	}
+	if showHost && id.host != "" {
+		parts = append(parts, hostSymbol+id.host)
+	}
+	return strings.Join(parts, " ")
+}
+
+// label is the identity as user@host, for the log and the events window.
 func (id identity) label(showUser, showHost bool) string {
 	switch {
 	case showUser && showHost && id.user != "" && id.host != "":
@@ -72,7 +92,7 @@ func (m *WM) frameLabel(w *Window) string {
 	if id == (identity{}) {
 		id = m.localIdent()
 	}
-	return id.label(m.cfg.ShowUser, m.cfg.ShowHost)
+	return id.frameText(m.cfg.ShowUser, m.cfg.ShowHost)
 }
 
 // refreshIdent updates w's identity from its foreground process; reports a

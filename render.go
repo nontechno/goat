@@ -269,26 +269,37 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 	}
 }
 
-// wrapLabel is the bottom-border label for w's line wrapping.
+// Symbols for the line-wrapping state in the bottom border.
+const (
+	wrapSymbol   = "w" // long lines wrap
+	nowrapSymbol = ">" // long lines run past the edge
+)
+
+// wrapLabel is the bottom-border label for w's line wrapping: w (wrapping),
+// > (not), or > +40 (not, viewed 40 columns to the right).
 func wrapLabel(w *Window) string {
 	switch {
 	case !w.nowrap:
-		return "wrap"
+		return wrapSymbol
 	case w.hscroll > 0:
-		return fmt.Sprintf("nowrap +%d", w.hscroll)
+		return fmt.Sprintf("%s +%d", nowrapSymbol, w.hscroll)
 	}
-	return "nowrap"
+	return nowrapSymbol
 }
 
+// textWidth is how many columns s takes on screen.
+func textWidth(s string) int { return cellsWidth(textCells(s, uv.Style{}, 1<<20)) }
+
 // drawWrapIndicator writes the wrapping state into the bottom border, near
-// the right corner: ──── nowrap +40 ─┘ (when the window is wide enough).
+// the right corner: ──── > +40 ─┘ (when the window is wide enough).
 func (m *WM) drawWrapIndicator(scr uv.Screen, w *Window, st uv.Style) {
 	label := " " + wrapLabel(w) + " "
-	x := w.x + w.w - 2 - len(label)
+	lw := textWidth(label)
+	x := w.x + w.w - 2 - lw
 	if x < w.x+2 {
 		return
 	}
-	putCells(scr, x, w.y+w.h-1, textCells(label, st, len(label)))
+	putCells(scr, x, w.y+w.h-1, textCells(label, st, lw))
 }
 
 // scrollThumb is where the scroll marker goes, in content rows: the rows

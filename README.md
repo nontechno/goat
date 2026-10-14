@@ -30,7 +30,7 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 - Status bar: a numbered tab per window (click to focus), messages, a clock,
   and optionally the active window's directory (`status_show_dir`)
 - New windows (Alt+c) start in the active window's current directory
-- `user@host` on each framed window's bottom border (`show_user`,
+- `🧑user 💻host` on each framed window's bottom border (`show_user`,
   `show_host`, both on by default). The host is `hostname` in
   `~/.config/goat/local.toml` (up to 32 characters) if you want a custom
   label, else the system's host name. Both follow the window: `su`/`sudo -i` shows the new
@@ -59,7 +59,8 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   the wheel; in full-screen programs without mouse support the wheel scrolls
   (like xterm's alternate scroll)
 - Long lines wrap, or not (`wrap_lines`, Alt+z per window): unwrapped lines run
-  past the edge and the view scrolls sideways; the bottom border shows which
+  past the edge and the view scrolls sideways; the bottom border shows which:
+  `w` wrapping, `>` not (`> +40`: viewed 40 columns to the right)
 - Per-window scrollback (mouse wheel or keys, see below), with a position
   bar on the right edge while scrolled back
 - Alt+s swaps the active window's program with the background's: each keeps

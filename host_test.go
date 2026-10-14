@@ -99,14 +99,15 @@ func TestDrawHost(t *testing.T) {
 		show  bool
 		want  string
 	}{
-		{"full", frameFull, 30, "box", true, "└─ box ─────────────── wrap ─┘  "},
-		{"compact", frameCompact, 30, "box", true, "└─ box ─────────────── wrap ─┘  "},
-		{"off", frameFull, 30, "box", false, "└───────────────────── wrap ─┘  "},
-		{"no name", frameFull, 30, "", true, "└───────────────────── wrap ─┘  "},
-		{"shortened to fit", frameFull, 20, "averyveryverylonghostname", true, "└─ averyve ─ wrap ─┘  "},
-		{"short name, narrow window", frameFull, 16, "box", true, "└─ box ─ wrap ─┘  "},
-		{"too narrow: left out", frameFull, 14, "box", true, "└───── wrap ─┘  "},
-		{"cut below 4 columns: left out", frameFull, 16, "longname", true, "└─────── wrap ─┘  "},
+		{"full", frameFull, 30, "box", true, "└─ 💻box ──────────────── w ─┘  "},
+		{"compact", frameCompact, 30, "box", true, "└─ 💻box ──────────────── w ─┘  "},
+		{"off", frameFull, 30, "box", false, "└──────────────────────── w ─┘  "},
+		{"no name", frameFull, 30, "", true, "└──────────────────────── w ─┘  "},
+		{"shortened to fit", frameFull, 20, "averyveryverylonghostname", true, "└─ 💻averyver ─ w ─┘  "},
+		{"short name, narrow window", frameFull, 15, "box", true, "└─ 💻box ─ w ─┘  "},
+		{"too narrow: left out", frameFull, 14, "box", true, "└──────── w ─┘  "},
+		{"symbol and 4 characters", frameFull, 16, "longname", true, "└─ 💻long ─ w ─┘  "},
+		{"cut below 4 characters: left out", frameFull, 15, "longname", true, "└───────── w ─┘  "},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := bottom(tt.frame, tt.width, tt.host, tt.show); got != tt.want {
@@ -147,3 +148,27 @@ func TestHostFileNotRegular(t *testing.T) {
 }
 
 func must[T any](v T, _ error) T { return v }
+
+// The frame shows 🧑user 💻host, or one of them; logs keep user@host.
+func TestIdentityFrameText(t *testing.T) {
+	id := identity{user: "alice", host: "box"}
+	for _, tc := range []struct {
+		user, host bool
+		want       string
+	}{
+		{true, true, "🧑alice 💻box"},
+		{false, true, "💻box"},
+		{true, false, "🧑alice"},
+		{false, false, ""},
+	} {
+		if got := id.frameText(tc.user, tc.host); got != tc.want {
+			t.Errorf("user %v host %v: %q, want %q", tc.user, tc.host, got, tc.want)
+		}
+	}
+	if got := (identity{host: "box"}).frameText(true, true); got != "💻box" {
+		t.Errorf("no user known: %q", got)
+	}
+	if got := id.label(true, true); got != "alice@box" {
+		t.Errorf("log label: %q", got)
+	}
+}

@@ -112,8 +112,8 @@ func TestWindowIdentityFollowsSSH(t *testing.T) {
 		}
 		t.Fatalf("frame label %q, want %q", m.frameLabel(w), want)
 	}
-	wait(w1, "alice@box.example") // host as typed, user from "ssh -G"
-	wait(w2, currentUserName()+"@local-box")
+	wait(w1, "🧑alice 💻box.example") // host as typed, user from "ssh -G"
+	wait(w2, "🧑"+currentUserName()+" 💻local-box")
 }
 
 func findPython() (string, error) {
@@ -196,7 +196,7 @@ func TestNoSSHConfigForAnotherUsersSSH(t *testing.T) {
 	m.windows = []*Window{w}
 	defer m.closeAll()
 
-	want := m.userName(65534) + "@box.example" // ssh's own user, host as typed
+	want := "🧑" + m.userName(65534) + " 💻box.example" // ssh's own user, host as typed
 	seen := time.Time{}
 	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 		m.tick(time.Now())
