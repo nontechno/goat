@@ -91,6 +91,15 @@ clipboard_osc52 = true
 # "xclip -selection clipboard".
 copy_command = ""
 
+# Repaint the whole screen every this many seconds; 0 = never. goat always
+# repaints on Alt+r and when the terminal gets focus back (switching to it
+# from another app). A repaint rewrites every cell in place, so it doesn't
+# flicker, and repairs anything that garbled the screen: another program
+# writing to the terminal, a character drawn wider than expected, a reset.
+# Note that some terminals drop a text selection made with the terminal's
+# own selection (Option/Shift+drag) when its cells are rewritten.
+repaint_seconds = 0
+
 # Show the active window's current directory in the status bar, left of the
 # clock (~ for your home folder; shortened from the left, e.g. "…/src/goat",
 # when it doesn't fit). New windows (Alt+c) always start in that directory.
@@ -199,6 +208,7 @@ scroll_left = "<"           # not wrapping: view left (Alt+Shift+,)
 scroll_right = ">"          # ... and right (Alt+Shift+.)
 show_events = "-"           # events window: bells, notifications, exits, ...
 swap_background = "s"       # swap the active window's program with the background's
+repaint = "r"               # redraw the whole screen (repairs anything that garbled it)
 
 [layout]
 # Offset, in character cells, when cascading a new window from the focused one.

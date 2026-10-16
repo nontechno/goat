@@ -103,6 +103,11 @@ type WM struct {
 
 	dirty bool
 	quit  bool
+
+	// The host screen is to be repainted whole with the next frame
+	// (repaint), and when it last was.
+	repaintHost bool
+	lastRepaint time.Time
 }
 
 // tab is a window's label in the status bar.
@@ -543,6 +548,8 @@ func (m *WM) run(a action) error {
 		m.toggleEvents()
 	case actSwapBackground:
 		m.swapWithBackground()
+	case actRepaint:
+		m.repaint()
 	case actPinWindow:
 		if w := m.focused; w != nil && !w.background {
 			w.pinned = !w.pinned
@@ -1075,7 +1082,18 @@ func (m *WM) backgroundExited(hadFocus bool) {
 
 // tick runs twice a second: poll foreground process names, expire status
 // messages, and keep the clock current.
+// repaint redraws the whole screen with the next frame (see
+// hostScreen.repaintAll): keys.repaint, the terminal getting focus back,
+// and every repaint_seconds.
+func (m *WM) repaint() {
+	m.repaintHost = true
+	m.dirty = true
+}
+
 func (m *WM) tick(now time.Time) {
+	if n := m.cfg.RepaintSeconds; n > 0 && now.Sub(m.lastRepaint) >= time.Duration(n)*time.Second {
+		m.repaint()
+	}
 	for _, w := range m.windows {
 		if w.refreshProcName() {
 			m.dirty = true

@@ -47,3 +47,47 @@ index out of range and panic. See also the x/vt patch notes.
 goat's `uvpatch_test.go` checks the patched functions against the original
 algorithm on random operations. Worth proposing upstream; once released
 there, drop this directory and the `replace` line.
+
+## Patch: characters of uncertain width (uncertain.go, terminal_renderer.go)
+
+Terminals disagree about the width of emoji presentation sequences ("⚙️" is
+two columns by Unicode, one in macOS Terminal), of symbols, arrows and
+dingbats ("■ ✔ ↩", two columns where ambiguous characters are wide or drawn
+as emoji), and of ZWJ sequences, flags and keycaps. The renderer trusted the
+terminal's cursor after each character, so one of these shifted the rest of
+the line, window borders included, out of place until those cells were
+redrawn.
+
+`putAttrCell` now writes such a cell with `putUncertainCell`: it blanks the
+cell's columns first (ECH) when it has more than one, writes the character
+(autowrap off at the end of a line), puts the cursor where it belongs (CUP),
+and for a one-column cell redraws its right-hand neighbor, which a terminal
+drawing the character two wide would have covered. The overwrite
+optimization of cursor moves no longer prints such cells to move over them.
+Other text is written exactly as before.
+
+## Patch: nothing written can break the screen (uncertain.go, terminal_renderer.go)
+
+Extends the patch above:
+
+- Cell text goes through `SafeContent` first: no C0/C1 controls, bidi
+  embeddings, overrides, isolates or marks, line/paragraph separators or
+  other invisible format characters; a soft hyphen becomes "-"; a cell never
+  starts with a mark or joiner (the terminal would attach it to the cell
+  before; it gets a blank to sit on) or ends with a joiner (which would pull
+  the next cell in). Hyperlink URLs and parameters lose control characters.
+- `UncertainWidth` trusts only the scripts and blocks whose width no terminal
+  disputes (Latin, Greek, Cyrillic, CJK, box drawing, ...); anything else,
+  and any cluster extended by more than nonspacing marks, is written with
+  care. The care now covers everything the terminal might have covered: up
+  to two columns per code point (a cluster split into parts, each wide).
+- A cell of width 0 that still has text takes a column like any other.
+- `move` never stops on the right half of a wide character (upstream bug:
+  the cells after it were written a column to the left).
+- Lines are no longer updated by inserting or deleting characters (ICH,
+  DCH, IRM): that shifts what the terminal shows, which next to a character
+  of uncertain width isn't what goat thinks it is.
+- `Invalidate` makes the next Render rewrite every cell in place (no clear,
+  so no flicker), after putting back the character set, scroll region,
+  origin, insert and autowrap modes, style and hyperlink. goat uses it to
+  repaint (Alt+r, focus back, repaint_seconds).

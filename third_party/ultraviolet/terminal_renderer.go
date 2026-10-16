@@ -397,6 +397,18 @@ func (s *TerminalRenderer) move(newbuf *RenderBuffer, x, y int) {
 		x %= width
 	}
 
+	// GOAT PATCH: never stop on the right half of a wide character. The
+	// cells after it are written from there, and the half itself is skipped
+	// without moving, so they would all land a column early.
+	if newbuf != nil {
+		for x < newbuf.Width()-1 {
+			if c := newbuf.CellAt(x, y); c == nil || !c.IsZero() {
+				break
+			}
+			x++
+		}
+	}
+
 	// XXX: Disable styles if there's any
 	// Some move operations such as [ansi.LF] can apply styles to the new
 	// cursor position, thus, we need to reset the styles before moving the
@@ -510,9 +522,17 @@ func (s *TerminalRenderer) putAttrCell(newbuf *RenderBuffer, cell *Cell) {
 	cellWidth := 1
 	if cell == nil {
 		_ = s.buf.WriteByte(' ')
-	} else {
-		_, _ = s.buf.WriteString(cell.Content)
+	} else if plainASCII(cell.Content) {
+		_ = s.buf.WriteByte(cell.Content[0])
 		cellWidth = cell.Width
+	} else { // GOAT PATCH: see uncertain.go
+		text := SafeContent(cell.Content, cell.Width)
+		if UncertainWidth(text) {
+			s.putUncertainCell(newbuf, cell, text)
+			return
+		}
+		_, _ = s.buf.WriteString(text)
+		cellWidth = max(cell.Width, 1) // what was written takes at least a column
 	}
 
 	s.cur.X += cellWidth
@@ -564,7 +584,8 @@ func (s *TerminalRenderer) updatePen(cell *Cell) {
 		s.cur.Style = cell.Style // Copy the original style
 	}
 	if !newLink.Equal(&oldLink) {
-		_, _ = s.buf.WriteString(ansi.SetHyperlink(newLink.URL, newLink.Params))
+		// GOAT PATCH: no control characters inside the sequence (uncertain.go).
+		_, _ = s.buf.WriteString(ansi.SetHyperlink(safeLinkPart(newLink.URL), safeLinkPart(newLink.Params)))
 		s.cur.Link = cell.Link // Copy the original link
 	}
 }
@@ -950,7 +971,11 @@ func (s *TerminalRenderer) transformLine(newbuf *RenderBuffer, y int) {
 			// Investigate and fix.
 			s.move(newbuf, n+1, y)
 			ichCost := 3 + nLastCell - oLastCell
-			if s.caps.Contains(capICH) && (nLastCell < nLastNonBlank || ichCost > (m-n)) {
+			// GOAT PATCH: no inserting characters (or deleting, below): that
+			// shifts what the terminal shows, which around a character of
+			// uncertain width (uncertain.go) isn't what goat thinks it is.
+			// The cells are written instead.
+			if noShift || s.caps.Contains(capICH) && (nLastCell < nLastNonBlank || ichCost > (m-n)) {
 				s.putRange(newbuf, oldLine, newLine, y, n+1, m)
 			} else {
 				s.insertCells(newbuf, newLine[n+1:], nLastCell-oLastCell)
@@ -958,7 +983,7 @@ func (s *TerminalRenderer) transformLine(newbuf *RenderBuffer, y int) {
 		} else if oLastCell > nLastCell {
 			s.move(newbuf, n+1, y)
 			dchCost := 3 + oLastCell - nLastCell
-			if dchCost > len(ansi.EraseLineRight)+nLastNonBlank-(n+1) {
+			if noShift || dchCost > len(ansi.EraseLineRight)+nLastNonBlank-(n+1) {
 				if s.putRange(newbuf, oldLine, newLine, y, n+1, nLastNonBlank) {
 					s.move(newbuf, nLastNonBlank+1, y)
 				}
@@ -1405,7 +1430,8 @@ func relativeCursorMove(s *TerminalRenderer, newbuf *RenderBuffer, fx, fy, tx, t
 					cell := newbuf.CellAt(fx+i, ty)
 					if cell != nil && cell.Width > 0 {
 						i += cell.Width - 1
-						if !cell.Style.Equal(&s.cur.Style) || !cell.Link.Equal(&s.cur.Link) {
+						if !cell.Style.Equal(&s.cur.Style) || !cell.Link.Equal(&s.cur.Link) ||
+							!plainASCII(cell.Content) { // GOAT PATCH: see uncertain.go
 							overwrite = false
 							break
 						}

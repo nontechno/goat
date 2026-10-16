@@ -32,6 +32,9 @@ type hostScreen struct {
 	shape       uv.CursorShape
 	blink       bool
 	cursorColor string // "#rrggbb" last set with OSC 12; "" = terminal default
+
+	mouse   bool // mouse reporting is on (setup)
+	repaint bool // the next frame rewrites everything (see repaintAll)
 }
 
 func newHostScreen(out io.Writer, env []string, w, h int) *hostScreen {
@@ -55,13 +58,12 @@ func (s *hostScreen) resize(w, h int) {
 }
 
 // setup switches the terminal into goat's mode: alternate screen, hidden
-// cursor, bracketed paste, optional mouse reporting.
+// cursor, and the modes of writeModes.
 func (s *hostScreen) setup(mouse bool) error {
 	var b bytes.Buffer
-	b.WriteString(ansi.SetModeAltScreenSaveCursor + ansi.HideCursor + ansi.SetModeBracketedPaste)
-	if mouse {
-		_ = uv.EncodeMouseMode(&b, uv.MouseModeDrag)
-	}
+	s.mouse = mouse
+	b.WriteString(ansi.SetModeAltScreenSaveCursor + ansi.HideCursor)
+	s.writeModes(&b)
 	// Ask for the host's default colors (see WM.setHostColors).
 	b.WriteString(ansi.RequestForegroundColor + ansi.RequestBackgroundColor)
 	_, err := s.out.Write(b.Bytes())
@@ -75,12 +77,42 @@ func (s *hostScreen) teardown(mouse bool) {
 	if mouse {
 		_ = uv.EncodeMouseMode(&b, uv.MouseModeNone)
 	}
+	b.WriteString(ansi.ResetModeFocusEvent + ansi.ResetModeBiDirectionalSupport)
 	if s.cursorColor != "" {
 		b.WriteString(ansi.ResetCursorColor)
 	}
 	b.WriteString(ansi.ResetModeBracketedPaste + ansi.ResetModeAltScreenSaveCursor +
 		ansi.ShowCursor + ansi.SetCursorStyle(0))
 	_, _ = s.out.Write(b.Bytes())
+}
+
+// writeModes writes the terminal modes goat runs in:
+//
+//   - bracketed paste, and mouse reporting unless disable_mouse is set;
+//   - focus reporting (1004): goat repaints the screen when the terminal
+//     gets focus back, in case something else wrote to it meanwhile;
+//   - no bidirectional reordering (ECMA-48 BDSM reset to explicit, CSI 8 h).
+//     Terminals that reorder right-to-left text by themselves (GNOME
+//     Terminal and other VTE ones) would otherwise move the characters of a
+//     line around, window borders included. Others ignore it.
+//
+// They are written again with every repaint, in case something reset them.
+func (s *hostScreen) writeModes(b *bytes.Buffer) {
+	b.WriteString(ansi.SetModeBracketedPaste + ansi.SetModeFocusEvent + ansi.SetModeBiDirectionalSupport)
+	if s.mouse {
+		_ = uv.EncodeMouseMode(b, uv.MouseModeDrag)
+	}
+}
+
+// repaintAll makes the next frame rewrite every cell, in place (so nothing
+// flickers), after putting back the terminal state goat relies on: the
+// character set, scroll region, autowrap and other modes, colors, and the
+// cursor's shape, color and visibility. It repairs whatever made the screen
+// differ from what goat drew: a character the terminal drew wider than goat
+// expected, output from a program writing to the terminal directly, the
+// terminal reset, ...
+func (s *hostScreen) repaintAll() {
+	s.repaint = true
 }
 
 // cursorState is where (and how) the host cursor should be after a frame.
@@ -117,8 +149,17 @@ func (s *hostScreen) render(d uv.Drawable, cur cursorState) error {
 		}
 	}
 	s.frame.Reset()
+	repaint := s.repaint
+	if repaint {
+		s.repaint = false
+		s.writeModes(&s.frame)
+		s.rend.Invalidate(s.rbuf)
+		// Not known any more: sent again below.
+		s.cursorShown = !cur.visible
+		s.shape, s.cursorColor = -1, "?"
+	}
 	s.rend.Render(s.rbuf)
-	cells := s.rend.Buffered() > 0
+	cells := s.rend.Buffered() > 0 || repaint
 	if cur.visible {
 		s.rend.MoveTo(cur.x, cur.y)
 	}

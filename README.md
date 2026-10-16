@@ -55,6 +55,22 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   drag the left/right/bottom edges or bottom corners to resize, click to focus
 - Full rendering: 256-color and true color, bold/italic/underline/reverse,
   wide (CJK/emoji) characters
+- What programs print stays inside their windows, whatever it is:
+  - Characters terminals disagree on the width of (emoji like `⚙️`, symbols
+    like `✔ ■ ↩`, flags, Indic conjuncts, anything outside the scripts all
+    terminals agree on) are written with the cursor put in place after
+    them, and the cells they might have covered written again. At worst
+    such a character is cut off by its neighbor; borders never move.
+  - Characters a terminal would act on instead of showing (bidi overrides
+    and marks, C1 controls, line separators, other invisible format
+    characters) never reach it, nor control characters in hyperlinks.
+    Terminals that reorder right-to-left text by themselves (GNOME Terminal
+    and other VTE ones) are asked not to while goat runs.
+  - Anything else that garbles the screen (another program writing to the
+    terminal, a reset, a stray character set switch) is repaired by a
+    repaint: Alt+r, automatically when the terminal gets focus back, and
+    every `repaint_seconds` if set. A repaint rewrites every cell in place
+    (no flicker) after putting back the terminal state goat relies on.
 - Programs that use the mouse (vim, htop, mc, ...) get mouse clicks, drags and
   the wheel; in full-screen programs without mouse support the wheel scrolls
   (like xterm's alternate scroll)
@@ -128,6 +144,7 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | View left / right (no wrap) | `Alt+<` / `Alt+>`, Shift+wheel |
 | Events window (bells, notifications, ...) | `Alt+-`         |
 | Swap with the background  | `Alt+s`                         |
+| Repaint the screen        | `Alt+r`                         |
 | Close window              | `Alt+x`                         |
 | Quit goat (asks first if windows are open) | `Alt+q`          |
 

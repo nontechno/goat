@@ -250,6 +250,11 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 				*cc = *c
 				if c.IsZero() {
 					*cc = uv.EmptyCell
+				} else if cc.Width < 1 {
+					// A cell holding only something invisible (a bidi mark,
+					// a soft hyphen): it takes a column here, so it must say
+					// so, or the screen writer loses count of columns.
+					cc.Width = 1
 				}
 				if cc.Style.Bg == nil {
 					cc.Style.Bg = w.bgColor

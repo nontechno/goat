@@ -114,6 +114,7 @@ type KeyConfig struct {
 	ScrollRight     string `toml:"scroll_right"`
 	ShowEvents      string `toml:"show_events"`     // the events window (bells, notifications, ...)
 	SwapBackground  string `toml:"swap_background"` // swap the active window's program with the background's
+	Repaint         string `toml:"repaint"`         // redraw the whole screen
 }
 
 // LayoutConfig holds window geometry settings.
@@ -193,6 +194,11 @@ type Config struct {
 	ClipboardOSC52 bool   `toml:"clipboard_osc52"`
 	CopyCommand    string `toml:"copy_command"`
 
+	// Repaint the whole screen every this many seconds (0 = never), besides
+	// on keys.repaint and when the terminal gets focus back: repairs
+	// whatever else wrote to the terminal or drew differently from goat.
+	RepaintSeconds int `toml:"repaint_seconds"`
+
 	Theme  ThemeConfig  `toml:"theme"`
 	Keys   KeyConfig    `toml:"keys"`
 	Layout LayoutConfig `toml:"layout"`
@@ -234,8 +240,8 @@ func DefaultConfig() *Config {
 			NewWindow: "c", FocusNext: "n", FocusPrev: "p", Quit: "q",
 			CloseWindow: "x", PinWindow: "w", CycleBackground: "b", CycleForeground: "f",
 			ToggleWrap: "z", ScrollLeft: "<", ScrollRight: ">", ShowEvents: "-",
-			SwapBackground: "s",
-			MoveLeft:       "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
+			SwapBackground: "s", Repaint: "r",
+			MoveLeft: "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
 			ResizeLeft: "H", ResizeDown: "J", ResizeUp: "K", ResizeRight: "L",
 		},
 		Layout: LayoutConfig{
@@ -276,6 +282,7 @@ const (
 	actScrollRight
 	actShowEvents
 	actSwapBackground
+	actRepaint
 )
 
 // finish validates the config and builds the key binding table. Problems are
@@ -312,6 +319,10 @@ func (c *Config) finish(md *toml.MetaData) []string {
 	}
 	if c.ScrollbackLines < 0 {
 		c.ScrollbackLines = 0
+	}
+	if c.RepaintSeconds < 0 {
+		warn("repaint_seconds %d: want 0 (never) or more", c.RepaintSeconds)
+		c.RepaintSeconds = 0
 	}
 	if f, ok := parseFrame(c.Frame); ok {
 		c.frame = f
@@ -369,6 +380,7 @@ func (c *Config) finish(md *toml.MetaData) []string {
 		{"scroll_right", &c.Keys.ScrollRight, ">", actScrollRight},
 		{"show_events", &c.Keys.ShowEvents, "-", actShowEvents},
 		{"swap_background", &c.Keys.SwapBackground, "s", actSwapBackground},
+		{"repaint", &c.Keys.Repaint, "r", actRepaint},
 	} {
 		r, size := utf8.DecodeRuneInString(*b.val)
 		if *b.val == "" || size != len(*b.val) || (r >= '0' && r <= '9') {

@@ -396,6 +396,11 @@ func (m *WM) handleEvent(ev uv.Event, scr *hostScreen) error {
 		m.handleMouse(ev)
 	case uv.MouseWheelEvent:
 		m.handleMouse(ev)
+	case uv.FocusEvent:
+		// Back from another app: whatever happened to the terminal
+		// meanwhile (a program writing to it directly, a reset, ...),
+		// draw everything again.
+		m.repaint()
 	case uv.ForegroundColorEvent:
 		m.setHostColors(ev.Color, nil)
 	case uv.BackgroundColorEvent:
@@ -446,5 +451,10 @@ func (m *WM) render(scr *hostScreen) error {
 			color: w.fgColor} // the window's Alt+b text color, if any
 	}
 	m.dirty = false
+	if m.repaintHost {
+		m.repaintHost = false
+		m.lastRepaint = time.Now()
+		scr.repaintAll()
+	}
 	return scr.render(scene{m}, cur)
 }
