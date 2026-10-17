@@ -68,6 +68,16 @@ type Window struct {
 	onClipboard func(osc []byte) // OSC 52 from the program ("52;c;<base64>")
 	// onEvent reports a bell or desktop notification (events.go).
 	onEvent func(kind eventKind, text string)
+	// The git repository and branch of dir (git.go, show_git).
+	git gitInfo
+	// Hidden with Alt+0 (minimize.go): not drawn, not clickable.
+	minimized bool
+	// Program status (OSC 7501, status.go): the window's records, and where
+	// status reports, prompt marks (OSC 133) and full resets go.
+	status   statusStore
+	onStatus func(data []byte)
+	onPrompt func(data []byte)
+	onReset  func()
 
 	bgColor color.Color // colors chosen with Alt+b (nil = terminal default)
 	fgColor color.Color //
@@ -207,7 +217,27 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 			return true
 		})
 	}
+	// Program status (OSC 7501) and shell prompt marks (OSC 133).
+	win.emu.RegisterOscHandler(7501, func(data []byte) bool {
+		if win.onStatus != nil {
+			win.onStatus(data)
+		} else if string(data) == "7501;?" {
+			win.replyStatusQuery()
+		}
+		return true
+	})
+	win.emu.RegisterOscHandler(133, func(data []byte) bool {
+		if win.onPrompt != nil {
+			win.onPrompt(data)
+		}
+		return true
+	})
 	win.emu.SetCallbacks(vt.Callbacks{
+		Reset: func() {
+			if win.onReset != nil {
+				win.onReset()
+			}
+		},
 		Bell: func() {
 			if win.onEvent != nil {
 				win.onEvent(evBell, "")

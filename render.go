@@ -17,6 +17,9 @@ func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 	m := s.m
 	m.syncEvents()                // the events window's contents (events.go)
 	for _, w := range m.windows { // bottom to top: later windows cover earlier
+		if w.minimized { // hidden with Alt+0
+			continue
+		}
 		if !w.background {
 			m.drawFrame(scr, w)
 		}
@@ -174,18 +177,18 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	}
 
 	if w.frame == frameNone {
-		line(y0, '─', '─', '─')
+		line(y0, frameH, frameH, frameH)
 		titleInLine(x0+2, w.w-5) // ──␠title␠──
 		return
 	}
 
-	line(y0, '╭', '─', '╮')
-	side := runeCell('│', st)
+	line(y0, frameTopLeft, frameH, frameTopRight)
+	side := runeCell(frameV, st)
 	for y := y0 + 1; y < y1; y++ {
 		put(scr, x0, y, side)
 		put(scr, x1, y, side)
 	}
-	line(y1, '└', '─', '┘')
+	line(y1, frameBottomLeft, frameH, frameBottomRight)
 	m.drawWrapIndicator(scr, w, lst)
 	m.drawHost(scr, w, lst)
 
@@ -203,7 +206,7 @@ func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	}
 	cs := textCells(m.titleLabel(w), tst, w.w-4)
 	putCells(scr, x0+1+(w.w-2-cellsWidth(cs))/2, y0+1, cs)
-	line(y0+2, '├', '─', '┤')
+	line(y0+2, frameTeeLeft, frameH, frameTeeRight)
 }
 
 // drawContent copies the window's terminal cells (colors, bold, underline,
@@ -274,31 +277,24 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 	}
 }
 
-// Symbols for the line-wrapping state in the bottom border.
-const (
-	wrapSymbol   = "w" // long lines wrap
-	nowrapSymbol = ">" // long lines run past the edge
-)
+// (wrapSymbol, nowrapSymbol: iconography.go)
 
-// wrapLabel is the bottom-border label for w's line wrapping: w (wrapping),
-// > (not), or > +40 (not, viewed 40 columns to the right).
+// wrapLabel is the bottom-border label for w's line wrapping: []
+// (wrapping) or [) (not).
 func wrapLabel(w *Window) string {
-	switch {
-	case !w.nowrap:
-		return wrapSymbol
-	case w.hscroll > 0:
-		return fmt.Sprintf("%s +%d", nowrapSymbol, w.hscroll)
+	if w.nowrap {
+		return nowrapSymbol
 	}
-	return nowrapSymbol
+	return wrapSymbol
 }
 
 // textWidth is how many columns s takes on screen.
 func textWidth(s string) int { return cellsWidth(textCells(s, uv.Style{}, 1<<20)) }
 
 // drawWrapIndicator writes the wrapping state into the bottom border, near
-// the right corner: ──── > +40 ─┘ (when the window is wide enough).
+// the right corner: ────[)─┘ (when the window is wide enough).
 func (m *WM) drawWrapIndicator(scr uv.Screen, w *Window, st uv.Style) {
-	label := " " + wrapLabel(w) + " "
+	label := wrapLabel(w)
 	lw := textWidth(label)
 	x := w.x + w.w - 2 - lw
 	if x < w.x+2 {
@@ -328,10 +324,10 @@ func (m *WM) drawScrollMarker(scr uv.Screen, w *Window) {
 	}
 	pos, size := scrollThumb(h, sb, w.scroll)
 	st := uv.Style{Fg: m.cfg.Theme.FocusedBorder.C, Attrs: uv.AttrBold}
-	x, ch := w.x+w.w-1, '┃'
+	x, ch := w.x+w.w-1, scrollMarkBorder
 	overlay := w.background || w.frame == frameNone // no right border
 	if overlay {
-		x, ch = w.contentX()+w.contentW()-1, '▐'
+		x, ch = w.contentX()+w.contentW()-1, scrollMarkOverlay
 	}
 	switch { // the background of the border or content it sits on
 	case w.bgColor != nil:
@@ -356,10 +352,19 @@ func (m *WM) drawStatus(scr uv.Screen) {
 		put(scr, x, y, fill)
 	}
 
-	clockSt := uv.Style{Fg: m.cfg.Theme.ClockFg.C, Bg: m.cfg.Theme.ClockBg.C, Attrs: uv.AttrBold}
-	clock := textCells(" "+time.Now().Format("15:04")+" ", clockSt, m.cols)
-	clockX := m.cols - cellsWidth(clock)
-	putCells(scr, clockX, y, clock)
+	// The right end (local.toml): the clock, and left of it the host name.
+	clockX := m.cols
+	if m.bar.clock {
+		clockSt := uv.Style{Fg: m.cfg.Theme.ClockFg.C, Bg: m.cfg.Theme.ClockBg.C, Attrs: uv.AttrBold}
+		clock := textCells(" "+time.Now().Format("15:04")+" ", clockSt, m.cols)
+		clockX -= cellsWidth(clock)
+		putCells(scr, clockX, y, clock)
+	}
+	if m.bar.host != "" {
+		hs := textCells(" "+hostSymbol+m.bar.host+" ", base, clockX)
+		clockX -= cellsWidth(hs)
+		putCells(scr, clockX, y, hs)
+	}
 	// Unseen events (Alt+- shows them): "!3" left of the clock.
 	if ind := m.eventsIndicator(); ind != "" {
 		ist := uv.Style{Fg: m.cfg.Theme.StatusBg.C, Bg: m.cfg.Theme.HintText.C, Attrs: uv.AttrBold}
@@ -372,11 +377,17 @@ func (m *WM) drawStatus(scr uv.Screen) {
 	x := 0
 	for _, w := range m.cycle() {
 		label := " " + m.tabName(w)
+		if w.minimized { // hidden with Alt+0
+			label = " " + ghost + m.tabName(w)
+		}
 		if w.pinned {
-			label += "*"
+			label += pinnedSymbol
 		}
 		label += " "
 		st := base
+		if w.minimized {
+			st.Attrs |= uv.AttrFaint
+		}
 		if w == m.focused {
 			st.Fg = m.cfg.Theme.FocusedBorder.C
 			st.Attrs |= uv.AttrBold | uv.AttrReverse
@@ -426,7 +437,7 @@ func fitStart(s string, w int) string {
 	for _, c := range textCells(s, uv.Style{}, w-1) {
 		out += c.Content
 	}
-	return out + "…"
+	return out + ellipsis
 }
 
 // fitEnd shortens s to at most w columns by cutting its start ("…xyz").
@@ -443,7 +454,7 @@ func fitEnd(s string, w int) string {
 		i--
 		used += cs[i].Width
 	}
-	out := "…"
+	out := ellipsis
 	for _, c := range cs[i:] {
 		out += c.Content
 	}

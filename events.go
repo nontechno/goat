@@ -125,7 +125,7 @@ func cleanEventText(s string) string {
 	}, s)
 	s = strings.TrimSpace(s)
 	if r := []rune(s); len(r) > maxEventText {
-		s = string(r[:maxEventText-1]) + "…"
+		s = string(r[:maxEventText-1]) + ellipsis
 	}
 	return s
 }
@@ -140,6 +140,9 @@ func (m *WM) hookEvents(w *Window) {
 		logger.Log(context.Background(), level, "window event", "window", w.id, "kind", string(kind), "text", cleanEventText(text))
 		m.logEvent(w, kind, text)
 	}
+	w.onStatus = func(data []byte) { m.handleStatusOSC(w, data) }
+	w.onPrompt = func(data []byte) { m.handlePromptOSC(w, data) }
+	w.onReset = func() { m.statusReset(w) }
 }
 
 // parseNotification turns a desktop-notification OSC into its text:
@@ -250,9 +253,7 @@ func (m *WM) hideEvents() {
 	}
 	if m.focused == w {
 		m.focused = nil
-		if n := len(m.windows); n > 0 {
-			m.focus(m.windows[n-1])
-		}
+		m.focus(m.topShown())
 	}
 	m.dirty = true
 }
@@ -340,6 +341,10 @@ func eventSGR(e event, line string) string {
 	switch e.kind {
 	case evBell, evNotify, evError, evAction:
 		return "\x1b[1m" + line + "\x1b[0m"
+	case evStatus: // a program waiting for the user, or failed
+		if strings.HasPrefix(e.text, "blocked") || strings.HasPrefix(e.text, "error") {
+			return "\x1b[1m" + line + "\x1b[0m"
+		}
 	}
 	return line
 }
@@ -367,7 +372,7 @@ func (m *WM) eventsKey(w *Window, k uv.Key) {
 func kindWidth(e event) int {
 	n := len(e.kind)
 	if e.count > 1 {
-		n += uniseg.StringWidth(fmt.Sprintf(" ×%d", e.count))
+		n += uniseg.StringWidth(fmt.Sprintf(" %s%d", repeatSymbol, e.count))
 	}
 	return n
 }
@@ -377,7 +382,7 @@ func kindWidth(e event) int {
 func eventLine(e event, winW, kindW int) string {
 	kind := string(e.kind)
 	if e.count > 1 {
-		kind += fmt.Sprintf(" ×%d", e.count)
+		kind += fmt.Sprintf(" %s%d", repeatSymbol, e.count)
 	}
 	s := e.at.Format("15:04:05") + "  " + padRight(e.win, winW) + "  " + padRight(kind, kindW)
 	if e.text != "" {
@@ -399,7 +404,7 @@ func (m *WM) eventsIndicator() string {
 	if m.ev.unseen == 0 || m.eventsShown() {
 		return ""
 	}
-	return fmt.Sprintf(" !%d ", m.ev.unseen)
+	return fmt.Sprintf(" %s%d ", unseenEventsSymbol, m.ev.unseen)
 }
 
 // titleEventText is how a title change is listed: the new title in quotes,

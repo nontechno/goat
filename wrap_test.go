@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,7 +27,7 @@ func TestNoWrap(t *testing.T) {
 	bottom := func() string { return render(m)[w.y+w.h-1] }
 	row := func(r int) string { return render(m)[w.contentY()+r] }
 
-	if !strings.Contains(bottom(), " w ") {
+	if !strings.Contains(bottom(), wrapSymbol) {
 		t.Fatalf("indicator: %q", bottom())
 	}
 
@@ -32,7 +35,7 @@ func TestNoWrap(t *testing.T) {
 	if !w.nowrap || w.emu.Width() != 512 {
 		t.Fatalf("toggle: nowrap=%v width=%d", w.nowrap, w.emu.Width())
 	}
-	if !strings.Contains(bottom(), " > ") {
+	if !strings.Contains(bottom(), nowrapSymbol) {
 		t.Fatalf("indicator: %q", bottom())
 	}
 	_, _ = w.emu.Write([]byte(long + "\r\nnext"))
@@ -50,8 +53,8 @@ func TestNoWrap(t *testing.T) {
 	if !strings.Contains(row(0), long[cw/2:cw/2+cw]) {
 		t.Fatalf("scrolled row 0 %q", row(0))
 	}
-	if !strings.Contains(bottom(), "> +14") {
-		t.Fatalf("indicator with offset: %q", bottom())
+	if b := bottom(); !strings.Contains(b, nowrapSymbol+"─┘") || strings.Contains(b, "+") {
+		t.Fatalf("indicator when scrolled sideways (no offset shown): %q", b)
 	}
 
 	// Copying from a scrolled view takes the text under the pointer.
@@ -103,5 +106,56 @@ func TestWrapConfig(t *testing.T) {
 	}
 	if !DefaultConfig().WrapLines {
 		t.Fatal("wrapping should be the default")
+	}
+}
+
+// A new window wraps as the window it is opened from does; with none (or
+// the events window) active, as wrap_lines says.
+func TestNewWindowInheritsWrap(t *testing.T) {
+	m, bg, a, b := wmWithBackground(t)
+	a.nowrap, b.nowrap = true, false
+	m.focus(a)
+	if m.newWindowWrap() {
+		t.Error("from a non-wrapping window: wraps")
+	}
+	m.focus(b)
+	if !m.newWindowWrap() {
+		t.Error("from a wrapping window: doesn't wrap")
+	}
+	bg.nowrap = true
+	m.focus(bg)
+	if m.newWindowWrap() {
+		t.Error("from the non-wrapping background: wraps")
+	}
+	m.cfg.WrapLines = false
+	m.toggleEvents() // the events window is focused: wrap_lines decides
+	bg.nowrap = false
+	if m.newWindowWrap() {
+		t.Error("from the events window: not wrap_lines")
+	}
+	m.focus(nil)
+	m.cfg.WrapLines = true
+	if !m.newWindowWrap() {
+		t.Error("no window: not wrap_lines")
+	}
+}
+
+func TestLocalWrapLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "local.toml")
+	for file, want := range map[string]string{
+		"":                     "unset",
+		"wrap_lines = false\n": "false",
+		"wrap_lines = true\n":  "true",
+		"hostname = \"x\"\n[background_window]\nwrap_lines = false\n": "unset", // in a section: not this key
+	} {
+		_ = os.WriteFile(path, []byte(file), 0o644)
+		lc, _ := readLocalConfig(path)
+		got := "unset"
+		if lc.WrapLines != nil {
+			got = fmt.Sprint(*lc.WrapLines)
+		}
+		if got != want {
+			t.Errorf("%q: %s, want %s", file, got, want)
+		}
 	}
 }

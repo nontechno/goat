@@ -156,7 +156,7 @@ func TestDrawFrames(t *testing.T) {
 		"│  1:bash   │   ",
 		"├───────────┤   ",
 		"│           │   ",
-		"└─────── w ─┘   ", // the wrap indicator
+		"└────────[]─┘   ", // the wrap indicator
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -168,7 +168,7 @@ func TestDrawFrames(t *testing.T) {
 	w = fakeWindow(1, 0, 0, 13, 3, true, true)
 	m.windows, m.focused = []*Window{w}, w
 	got = render(m)
-	for i, s := range []string{"╭─ 1:bash ──╮   ", "│           │   ", "└─────── w ─┘   "} {
+	for i, s := range []string{"╭─ 1:bash ──╮   ", "│           │   ", "└────────[]─┘   "} {
 		if got[i] != s {
 			t.Errorf("compact row %d: %q want %q", i, got[i], s)
 		}
@@ -188,7 +188,7 @@ func TestCompactBorderBackground(t *testing.T) {
 	// Window at x=1..12, y=1..3: every border cell gets the background.
 	for x := 1; x <= 12; x++ {
 		for _, y := range []int{1, 3} { // top (title) and bottom rows
-			if c := scr.CellAt(x, y); c.Style.Bg != bg.C {
+			if c := scr.CellAt(x, y); !c.IsZero() && c.Style.Bg != bg.C { // (not the right half of a wide character)
 				t.Fatalf("border x=%d y=%d bg %v", x, y, c.Style.Bg)
 			}
 		}

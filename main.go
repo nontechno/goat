@@ -215,8 +215,13 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	if dw != "" {
 		warns = append(warns, dw)
 	}
+	if lc, ok := readLocalConfig(localPath); ok && lc.WrapLines != nil {
+		cfg.WrapLines = *lc.WrapLines // this machine's starting state (local.toml)
+		logger.Info("wrap_lines from local.toml", "wrap_lines", cfg.WrapLines)
+	}
 	m := newWM(cfg, warns, cols, rows)
 	m.localPath, m.desk, m.deskKnown = localPath, desk, deskKnown
+	m.bar, m.barChecked = readBarRight(localPath), time.Now()
 	termID := terminalID()
 	if prof, ok, pw := readTermProfile(localPath, termID); ok {
 		m.applyTermProfile(prof)

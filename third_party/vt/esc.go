@@ -34,4 +34,7 @@ func (e *Emulator) fullReset() {
 	e.atPhantom = false
 	e.grapheme = e.grapheme[:0]
 	e.lastChar = 0
+	if e.cb.Reset != nil { // GOAT PATCH: see Callbacks.Reset
+		e.cb.Reset()
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/BurntSushi/toml"
@@ -19,6 +20,35 @@ const maxHostLabel = 32
 type localConfig struct {
 	Hostname string `toml:"hostname"` // the name shown in window frames
 	Hotkey   string `toml:"hotkey"`   // (not used yet)
+
+	// The right end of the status bar: the clock, and the name of the host
+	// goat runs on ("hostname" above, else the system's). Both shown unless
+	// set to false.
+	ShowClock      *bool `toml:"show_clock"`
+	ShowLaunchHost *bool `toml:"show_launch_host"`
+
+	// Whether long lines wrap in windows at start (the background shell,
+	// launch script windows without a wrap option): overrides config.toml's
+	// wrap_lines on this machine. New windows (Alt+c) take the state of the
+	// window they were opened from.
+	WrapLines *bool `toml:"wrap_lines"`
+}
+
+// readLocalConfig reads local.toml (ok false if it is missing, unreadable
+// or not valid TOML). It is read like any small file goat polls: a regular
+// file only, never blocking, at most 64 KB.
+func readLocalConfig(path string) (lc localConfig, ok bool) {
+	if path == "" {
+		return lc, false
+	}
+	data, err := readSmallFile(path, 64<<10)
+	if err != nil {
+		return lc, false
+	}
+	if _, err := toml.Decode(string(data), &lc); err != nil {
+		return localConfig{}, false
+	}
+	return lc, true
 }
 
 // localConfigPath is local.toml in goat's config directory.
@@ -47,22 +77,48 @@ func hostLabel(localPath string) (name, source string) {
 }
 
 // readLocalHostname returns the cleaned "hostname" from local.toml ("" if
-// the file is missing, unreadable, not valid TOML or sets no name). It is
-// read like any small file goat polls: a regular file only, never
-// blocking, at most 64 KB.
+// the file is missing, unreadable, not valid TOML or sets no name).
 func readLocalHostname(path string) string {
-	if path == "" {
-		return ""
-	}
-	data, err := readSmallFile(path, 64<<10)
-	if err != nil {
-		return ""
-	}
-	var lc localConfig
-	if _, err := toml.Decode(string(data), &lc); err != nil {
-		return ""
-	}
+	lc, _ := readLocalConfig(path)
 	return cleanHostName(lc.Hostname)
+}
+
+// barRight is what the right end of the status bar shows (local.toml).
+type barRight struct {
+	clock bool
+	host  string // "" = not shown
+}
+
+// readBarRight reads the status bar settings from local.toml: the clock and
+// the host name, each shown unless set to false (and the host name only if
+// there is one).
+func readBarRight(path string) barRight {
+	lc, _ := readLocalConfig(path)
+	b := barRight{clock: lc.ShowClock == nil || *lc.ShowClock}
+	if lc.ShowLaunchHost == nil || *lc.ShowLaunchHost {
+		if n := cleanHostName(lc.Hostname); n != "" {
+			b.host = n
+		} else {
+			b.host, _ = hostLabel("")
+		}
+	}
+	return b
+}
+
+// refreshBarRight re-reads the status bar settings every hostRecheckEvery
+// (so an edit of local.toml shows within seconds); reports a change.
+func (m *WM) refreshBarRight(now time.Time) bool {
+	if m.barChecked.IsZero() || now.Sub(m.barChecked) < hostRecheckEvery {
+		// (never read at start, as in tests: the defaults stay)
+		return false
+	}
+	m.barChecked = now
+	b := readBarRight(m.localPath)
+	if b == m.bar {
+		return false
+	}
+	m.bar = b
+	return true
 }
 
 // cleanHostName trims spaces, drops control and other invisible characters
@@ -82,12 +138,13 @@ func cleanHostName(s string) string {
 	return s
 }
 
-// drawHost writes the host name into the left of the bottom border:
-// └─ 🧑alice 💻myhost ─────── w ─┘. When the window is too narrow for all of it,
+// drawHost writes the host name into the left of the bottom border, and the
+// git repository and branch after it (show_git):
+// └─ 🧑alice 💻myhost 📖nontechno/goat 🌿main ──[]─┘. When the window is too narrow for all of it,
 // the name is shortened (keeping at least 4 columns) or left out; it never
 // covers the wrap indicator.
 func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
-	if !m.showIdent() || w.background || w.frame == frameNone || m.isEvents(w) {
+	if !(m.showIdent() || m.cfg.ShowGit) || w.background || w.frame == frameNone || m.isEvents(w) {
 		return
 	}
 	name := m.frameLabel(w)
@@ -96,7 +153,7 @@ func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
 	}
 	start := w.x + 2       // └─␠host
 	limit := w.x + w.w - 2 // stop before ─┘
-	label := " " + wrapLabel(w) + " "
+	label := wrapLabel(w)
 	if wx := w.x + w.w - 2 - textWidth(label); wx >= w.x+2 {
 		limit = wx - 1 // keep one ─ between the host and the wrap label
 	}

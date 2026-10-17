@@ -149,17 +149,17 @@ func (m *WM) drawQuitDialog(scr uv.Screen) {
 			st := base
 			switch {
 			case y == y0 && x == x0:
-				ch, st = '╭', border
+				ch, st = frameTopLeft, border
 			case y == y0 && x == x0+width-1:
-				ch, st = '╮', border
+				ch, st = frameTopRight, border
 			case y == y0+height-1 && x == x0:
-				ch, st = '╰', border
+				ch, st = dialogBottomLeft, border
 			case y == y0+height-1 && x == x0+width-1:
-				ch, st = '╯', border
+				ch, st = dialogBottomRight, border
 			case y == y0 || y == y0+height-1:
-				ch, st = '─', border
+				ch, st = frameH, border
 			case x == x0 || x == x0+width-1:
-				ch, st = '│', border
+				ch, st = frameV, border
 			}
 			put(scr, x, y, runeCell(ch, st))
 		}
@@ -196,16 +196,18 @@ var (
 // buttonCells draws a dialog button: "> Label <" when selected, "  Label  "
 // otherwise (the same width, so nothing moves when the selection does).
 func (m *WM) buttonCells(label string, selected, danger bool, boxBg color.Color) []uv.Cell {
-	if !selected {
+	text := buttonMarkLeft + label + buttonMarkRight
+	if !selected { // the marks' width in spaces, so nothing moves
 		st := uv.Style{Fg: btnIdleFg, Bg: btnIdleBg}
-		return textCells("  "+label+"  ", st, len(label)+4)
+		text = strings.Repeat(" ", textWidth(buttonMarkLeft)) + label + strings.Repeat(" ", textWidth(buttonMarkRight))
+		return textCells(text, st, textWidth(text))
 	}
 	var bg color.Color = btnDangerBg
 	if !danger {
 		bg = m.visibleOn(m.cfg.Theme.FocusedBorder.C, boxBg, contrastLabel)
 	}
 	st := uv.Style{Fg: blackOrWhite(bg), Bg: bg, Attrs: uv.AttrBold}
-	return textCells("> "+label+" <", st, len(label)+4)
+	return textCells(text, st, textWidth(text))
 }
 
 // blackOrWhite is whichever of black and white reads better on bg.

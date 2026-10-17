@@ -28,7 +28,12 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   underneath; floating, overlapping windows on top; pin one to keep it above
   the others
 - Status bar: a numbered tab per window (click to focus), messages, a clock,
-  and optionally the active window's directory (`status_show_dir`)
+  the name of the host goat runs on (`💻myhost`: `hostname` from
+  `~/.config/goat/local.toml`, else the system's), and optionally the
+  active window's directory (`status_show_dir`). The clock and the host
+  name can be turned off in `local.toml` with `show_clock = false` and
+  `show_launch_host = false` (both on by default; edits show within
+  seconds)
 - New windows (Alt+c) start in the active window's current directory
 - `🧑user 💻host` on each framed window's bottom border (`show_user`,
   `show_host`, both on by default). The host is `hostname` in
@@ -36,6 +41,17 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   label, else the system's host name. Both follow the window: `su`/`sudo -i` shows the new
   user, and while ssh runs in the window, the user and host it logs in to
   (Linux)
+- After them, when the window's current directory is in a git repository,
+  the repository and branch: `└─ 🧑alice 💻myhost 📖nontechno/goat 🌿main ──[]─┘`
+  (`show_git`, on by default). The owner and name come from the `origin`
+  remote's URL (GitLab subgroups included: `group/sub/project`); a remote
+  on a local path, or none, gives just a name (the remote's or the
+  folder's). With no branch checked out it shows
+  `🌿detached a1b2c3d`. goat reads `.git` itself (git needn't be
+  installed): every window is followed, a branch switch shows within half a
+  second and is listed in the events window. Not shown while the window
+  runs ssh (the directory goat sees is then the local one), nor for the
+  background shell, which has no frame
 - Per-window colors from the `.color` files in `~/.config/goat` (installed
   by `goat -install`): Alt+b steps the background through the dark ones, then
   the light ones, then the terminal's own; Alt+f steps the text color through
@@ -76,9 +92,18 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   (like xterm's alternate scroll)
 - Long lines wrap, or not (`wrap_lines`, Alt+z per window): unwrapped lines run
   past the edge and the view scrolls sideways; the bottom border shows which:
-  `w` wrapping, `>` not (`> +40`: viewed 40 columns to the right)
+  `[]` wrapping, `[)` not. A new window (Alt+c) starts as the window it
+  was opened from; the background shell and launch script windows start as
+  `wrap_lines` says (a `wrap_lines` in `local.toml` overrides
+  `config.toml`'s on that machine)
 - Per-window scrollback (mouse wheel or keys, see below), with a position
   bar on the right edge while scrolled back
+- Alt+0 focuses the background shell; pressed again, it hides every
+  floating window (they keep running), and once more it brings back the
+  ones still hidden. A hidden window's status bar tab shows a ghost
+  (`👻2:vim`); clicking that tab or pressing its Alt+N brings back that
+  window alone. Alt+n / Alt+p skip hidden windows. The events window isn't
+  affected (only Alt+- shows and hides it)
 - Alt+s swaps the active window's program with the background's: each keeps
   its history, colors, wrapping and title, and is resized to its new place;
   the focus stays on the floating window
@@ -87,13 +112,26 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   from the last one; a run of `[ ! ] Action Required ...` titles is listed
   once as an `action` event, in bold, and a run of Braille spinner titles
   like `⠋ Thinking` once as a `spinner` event, until another title comes),
-  clipboard writes, programs exiting, `user@host` changes,
-  config warnings and goat's errors, with the time and the window each came
+  clipboard writes, programs exiting, `user@host` changes, program status
+  reports (see below), config warnings and goat's errors, with the time and
+  the window each came
   from. It is a regular window (move, resize, pin, scroll, select and copy)
   without a program; it stays until Alt+- hides it, and Alt+- brings it back
   where it was. While it is hidden, the status bar shows `!N` for the N
   events that came in. With it focused, arrows, PageUp/PageDown and
   Home/End scroll it
+- Program status (OSC 7501, the [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status)):
+  programs that report what they are doing (idle, working with progress,
+  blocked on you for a permission, question or login, done, error) are
+  understood. Every report is listed in the events window as a `status`
+  event with all it carries (id, app, kind, progress, title, message;
+  blocked and error in bold), and so are reports ignored for breaking the
+  protocol's rules, with the reason. goat keeps each window's records; a
+  new shell prompt (OSC 133;A) ends working and blocked ones, a full reset
+  (`ESC c`) clears them all. Programs asking whether the protocol is
+  supported (`ESC ] 7501 ; ? ST`) get `ESC ] 7501 ; ? ST`. Nothing else is
+  shown for them yet; what goat does with each kind of report is in the
+  (empty) `onStatus*` functions in `status.go`
 - Programs in windows can set the clipboard too (OSC 52, e.g. from vim, tmux
   or neovim); goat passes it on. Programs can't read the clipboard.
 - Select text with the mouse and it is copied to the clipboard: through the
@@ -132,6 +170,7 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Focus next / previous     | `Alt+n` / `Alt+p`               |
 | Focus window N            | `Alt+1`–`9` (number in title)   |
 | Focus the background shell | `Alt+0`                        |
+| Hide / bring back all other windows | `Alt+0` again (background focused) |
 | Move window               | `Alt+h/j/k/l` or `Alt+arrows`   |
 | Resize window             | `Alt+H/J/K/L` or `Alt+Shift+arrows` |
 | Pin / unpin (stay on top) | `Alt+w`                         |

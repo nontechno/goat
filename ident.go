@@ -34,12 +34,7 @@ type identity struct {
 	user, host string
 }
 
-// label is what the frame shows.
-// Symbols for the window frame's identity label: 🧑alice 💻myhost.
-const (
-	userSymbol = "🧑"
-	hostSymbol = "💻"
-)
+// (userSymbol, hostSymbol: iconography.go)
 
 // frameText is the identity as the window frame shows it: "🧑user 💻host"
 // (or just one of them, per show_user / show_host).
@@ -92,10 +87,20 @@ func (m *WM) frameLabel(w *Window) string {
 	if id == (identity{}) {
 		id = m.localIdent()
 	}
+	var who string
 	if m.plainIdent { // the terminal can't draw the emoji (goat -learn)
-		return id.label(m.cfg.ShowUser, m.cfg.ShowHost)
+		who = id.label(m.cfg.ShowUser, m.cfg.ShowHost)
+	} else {
+		who = id.frameText(m.cfg.ShowUser, m.cfg.ShowHost)
 	}
-	return id.frameText(m.cfg.ShowUser, m.cfg.ShowHost)
+	// Then the git repository and branch (show_git, git.go).
+	if g := m.gitFrameText(w); g != "" {
+		if who == "" {
+			return g
+		}
+		return who + " " + g
+	}
+	return who
 }
 
 // refreshIdent updates w's identity from its foreground process; reports a
@@ -128,7 +133,7 @@ func (m *WM) refreshIdent(w *Window) bool {
 	logger.Info("window identity changed", "window", w.id, "from", w.ident.label(true, true),
 		"to", id.label(true, true), "pid", pid)
 	if w.ident != (identity{}) { // not the first look
-		m.logEvent(w, evIdentity, w.ident.label(true, true)+" → "+id.label(true, true))
+		m.logEvent(w, evIdentity, w.ident.label(true, true)+" "+changeSymbol+" "+id.label(true, true))
 	}
 	w.ident = id
 	return true

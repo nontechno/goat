@@ -302,7 +302,7 @@ func learn(cfg *Config, in *os.File, out io.Writer) error {
 		emoji := w == 4
 		r.profile.Emoji = &emoji
 		if !emoji {
-			r.notes = append(r.notes, "this terminal doesn't draw 🧑 / 💻 two columns wide: window frames will show user@host")
+			r.notes = append(r.notes, "this terminal doesn't draw "+userSymbol+" / "+hostSymbol+" two columns wide: window frames will show user@host")
 		}
 	}
 	restore()

@@ -173,6 +173,9 @@ type Config struct {
 	// Show the active window's current directory in the status bar, left of
 	// the clock (shortened from the left when it doesn't fit).
 	StatusShowDir bool `toml:"status_show_dir"`
+	// Show the git repository and branch of each window's directory in its
+	// bottom border, after the host name ("📖nontechno/goat 🌿main"; see git.go).
+	ShowGit bool `toml:"show_git"`
 
 	// Show the host name on the left of each framed window's bottom border.
 	// The name is "hostname" in ~/.config/goat/local.toml (up to 32
@@ -223,6 +226,7 @@ func DefaultConfig() *Config {
 		Frame:           "full",
 		ClipboardOSC52:  true,
 		ShowHost:        true,
+		ShowGit:         true,
 		ShowUser:        true,
 		Theme: ThemeConfig{
 			FocusedBorder:       idx(14),

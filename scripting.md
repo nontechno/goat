@@ -369,8 +369,8 @@ Whether long lines wrap at the window's edge, like Alt+z
 
 - **`on`:** long lines continue on the next line, as in any terminal.
 - **`off`:** long lines run past the right edge. Scroll sideways with
-  Alt+< / Alt+> or Shift+mouse wheel. The window's bottom border shows `>`
-  (or `> +40` when scrolled; `w` when wrapping). This is good for logs and wide
+  Alt+< / Alt+> or Shift+mouse wheel. The window's bottom border shows `[)`
+  (`[]` when wrapping). This is good for logs and wide
   tables. Lines can be up to `nowrap_width` columns long (config.toml,
   default 512).
 

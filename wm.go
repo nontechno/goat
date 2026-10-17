@@ -61,6 +61,10 @@ type WM struct {
 	identOut    chan identMsg
 	userNames   map[int]string
 	hostChecked time.Time
+	// The right end of the status bar (local.toml show_clock,
+	// show_launch_host), re-read every few seconds.
+	bar        barRight
+	barChecked time.Time
 
 	windows []*Window // z-order, bottom first; pinned windows sit on top
 	focused *Window
@@ -181,6 +185,7 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		// megabytes piling up here (which would make Ctrl+C take effect late).
 		nextID: 1, out: make(chan ptyMsg, 16),
 		escFire: make(chan struct{}, 1), dirty: true,
+		bar:       barRight{clock: true}, // main reads local.toml's settings
 		identOut:  make(chan identMsg, 16),
 		home:      os.Getenv("HOME"),
 		palette:   cfg.palette,
@@ -214,6 +219,7 @@ func (m *WM) focus(w *Window) {
 		m.focused = nil
 		return
 	}
+	w.minimized = false // focusing a hidden window brings it back (minimize.go)
 	if m.focused != w {
 		if m.focused != nil && !m.focused.closed {
 			m.focused.emu.Blur()
@@ -222,9 +228,7 @@ func (m *WM) focus(w *Window) {
 		w.emu.Focus()
 	}
 	m.raise(w)
-	if m.cfg.StatusShowDir {
-		w.refreshDir()
-	}
+	m.refreshPlace(w, time.Now())
 	m.dirty = true
 }
 
@@ -270,7 +274,7 @@ func (m *WM) tabName(w *Window) string {
 // topAt returns the topmost window containing the screen point.
 func (m *WM) topAt(x, y int) *Window {
 	for i := len(m.windows) - 1; i >= 0; i-- {
-		if m.windows[i].contains(x, y) {
+		if !m.windows[i].minimized && m.windows[i].contains(x, y) {
 			return m.windows[i]
 		}
 	}
@@ -298,8 +302,18 @@ func (m *WM) minH() int {
 func (m *WM) minW() int { return m.cfg.Layout.MinWindowCols }
 
 func (m *WM) newWindow() error {
-	_, err := m.openWindow(openSpec{dir: m.newWindowDir(), frame: m.cfg.frame, wrap: m.cfg.WrapLines})
+	_, err := m.openWindow(openSpec{dir: m.newWindowDir(), frame: m.cfg.frame, wrap: m.newWindowWrap()})
 	return err
+}
+
+// newWindowWrap is whether a new window (Alt+c) wraps long lines: as the
+// window it is opened from does (the active one, the background shell
+// included); wrap_lines when there is none, or it is the events window.
+func (m *WM) newWindowWrap() bool {
+	if f := m.focused; f != nil && !f.closed && !m.isEvents(f) {
+		return !f.nowrap
+	}
+	return m.cfg.WrapLines
 }
 
 // openSpec describes a window to open: Alt+c's, or a launch script app's.
@@ -411,9 +425,7 @@ func (m *WM) remove(w *Window) {
 	}
 	if m.focused == w {
 		m.focused = nil
-		if n := len(m.windows); n > 0 {
-			m.focus(m.windows[n-1])
-		}
+		m.focus(m.topShown())
 	}
 	m.dirty = true
 }
@@ -485,7 +497,7 @@ func (m *WM) run(a action) error {
 	case actNewWindow:
 		return m.newWindow()
 	case actFocusNext, actFocusPrev:
-		ids := m.cycle()
+		ids := m.shownCycle()
 		if len(ids) < 2 || m.focused == nil {
 			return nil
 		}
@@ -597,7 +609,11 @@ func (m *WM) shortcut(k uv.Key) (bool, error) {
 		return false, nil
 	}
 	if r == '0' {
-		if m.bg != nil {
+		switch {
+		case m.bg == nil:
+		case m.focused == m.bg: // again: hide or bring back the others
+			m.toggleHidden()
+		default:
 			m.focus(m.bg)
 		}
 		return true, nil
@@ -1099,7 +1115,12 @@ func (m *WM) tick(now time.Time) {
 			m.dirty = true
 		}
 	}
-	if f := m.focused; f != nil && m.cfg.StatusShowDir && f.refreshDir() {
+	for _, w := range m.windows { // directories and git (show_git: every window)
+		if m.refreshPlace(w, now) {
+			m.dirty = true
+		}
+	}
+	if m.refreshBarRight(now) {
 		m.dirty = true
 	}
 	if m.identOn {
@@ -1169,9 +1190,7 @@ func (m *WM) swapWithBackground() {
 	m.focus(bg) // the same floating window, now running the former background
 	for _, w := range []*Window{fw, bg} {
 		w.refreshProcName()
-		if m.cfg.StatusShowDir {
-			w.refreshDir()
-		}
+		m.refreshPlace(w, time.Now())
 		if m.showIdent() {
 			m.refreshIdent(w)
 		}

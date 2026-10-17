@@ -87,3 +87,10 @@ it is dropped to make room (oldest first),
 from `Push` on a full buffer and from `SetMaxLines` shrinking it. pasture
 uses it to move history that no longer fits in memory to disk. Lines
 removed by `Clear` (ED 3) are not passed on: that history is meant to go.
+
+## Patch: reset callback (callbacks.go, esc.go)
+
+`Callbacks.Reset` is called after a full reset (RIS, `ESC c`). goat uses it
+to forget the window's program status records (OSC 7501), which the
+protocol ties to the terminal's lifetime: a full reset clears them, a soft
+reset (DECSTR) doesn't.

@@ -60,4 +60,8 @@ type Callbacks struct {
 	// DisableMode callback. When set, this function is called when a mode is
 	// disabled.
 	DisableMode func(mode ansi.Mode)
+
+	// GOAT PATCH: Reset callback. When set, this function is called after a
+	// full reset (RIS, ESC c).
+	Reset func()
 }

@@ -99,15 +99,15 @@ func TestDrawHost(t *testing.T) {
 		show  bool
 		want  string
 	}{
-		{"full", frameFull, 30, "box", true, "└─ 💻box ──────────────── w ─┘  "},
-		{"compact", frameCompact, 30, "box", true, "└─ 💻box ──────────────── w ─┘  "},
-		{"off", frameFull, 30, "box", false, "└──────────────────────── w ─┘  "},
-		{"no name", frameFull, 30, "", true, "└──────────────────────── w ─┘  "},
-		{"shortened to fit", frameFull, 20, "averyveryverylonghostname", true, "└─ 💻averyver ─ w ─┘  "},
-		{"short name, narrow window", frameFull, 15, "box", true, "└─ 💻box ─ w ─┘  "},
-		{"too narrow: left out", frameFull, 14, "box", true, "└──────── w ─┘  "},
-		{"symbol and 4 characters", frameFull, 16, "longname", true, "└─ 💻long ─ w ─┘  "},
-		{"cut below 4 characters: left out", frameFull, 15, "longname", true, "└───────── w ─┘  "},
+		{"full", frameFull, 30, "box", true, "└─ 💻box ─────────────────[]─┘  "},
+		{"compact", frameCompact, 30, "box", true, "└─ 💻box ─────────────────[]─┘  "},
+		{"off", frameFull, 30, "box", false, "└─────────────────────────[]─┘  "},
+		{"no name", frameFull, 30, "", true, "└─────────────────────────[]─┘  "},
+		{"shortened to fit", frameFull, 19, "averyveryverylonghostname", true, "└─ 💻averyver ─[]─┘  "},
+		{"short name, narrow window", frameFull, 14, "box", true, "└─ 💻box ─[]─┘  "},
+		{"too narrow: left out", frameFull, 13, "box", true, "└────────[]─┘  "},
+		{"symbol and 4 characters", frameFull, 15, "longname", true, "└─ 💻long ─[]─┘  "},
+		{"cut below 4 characters: left out", frameFull, 14, "longname", true, "└─────────[]─┘  "},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := bottom(tt.frame, tt.width, tt.host, tt.show); got != tt.want {
@@ -170,5 +170,51 @@ func TestIdentityFrameText(t *testing.T) {
 	}
 	if got := id.label(true, true); got != "alice@box" {
 		t.Errorf("log label: %q", got)
+	}
+}
+
+func TestBarRightSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "local.toml")
+	sys, _ := hostLabel("")
+	for _, tc := range []struct {
+		file string
+		want barRight
+	}{
+		{"", barRight{clock: true, host: sys}}, // no file: both, the system's name
+		{`hostname = "friendly"`, barRight{clock: true, host: "friendly"}},
+		{"show_clock = false\nshow_launch_host = false\n", barRight{}},
+		{"hostname = \"box\"\nshow_clock = false\n", barRight{host: "box"}},
+		{"show_launch_host = false\n", barRight{clock: true}},
+		{"not toml [", barRight{clock: true, host: sys}},
+	} {
+		_ = os.Remove(path)
+		if tc.file != "" {
+			if err := os.WriteFile(path, []byte(tc.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := readBarRight(path); got != tc.want {
+			t.Errorf("%q: %+v, want %+v", tc.file, got, tc.want)
+		}
+	}
+
+	// Drawn: host name left of the clock; neither when both are off.
+	m, _, _, _ := wmWithBackground(t)
+	m.bar = barRight{clock: true, host: "friendly"}
+	if line := strings.TrimRight(statusLine(m), " "); !strings.Contains(line, hostSymbol+"friendly  ") ||
+		!strings.HasSuffix(line, time.Now().Format("15:04")) {
+		t.Errorf("status bar %q", line)
+	}
+	m.bar = barRight{}
+	if line := statusLine(m); strings.Contains(line, hostSymbol) || strings.Contains(line, time.Now().Format("15:04")) {
+		t.Errorf("both off: %q", line)
+	}
+	// Edits to local.toml are picked up.
+	if err := os.WriteFile(path, []byte("show_clock = false\nhostname = \"new\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.localPath, m.barChecked = path, time.Now().Add(-time.Minute)
+	if !m.refreshBarRight(time.Now()) || m.bar != (barRight{host: "new"}) {
+		t.Errorf("not re-read: %+v", m.bar)
 	}
 }

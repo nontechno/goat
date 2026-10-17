@@ -64,12 +64,15 @@ scrollback_lines = 1000
 # lets them run on past the edge, to be seen by scrolling sideways (Alt+< /
 # Alt+>, Shift+mouse wheel; the view also follows the cursor while you type).
 # Alt+z (keys.toggle_wrap) switches the active window either way; windows
-# with a border show w (wrapping) / > (not; > +N when viewed N columns to
-# the right) at the bottom right.
+# with a border show [] (wrapping) / [) (not) at the bottom right.
 # Programs are still told the window's real width, so full-screen programs
 # (vim, less, htop) are not affected. Shell line editing of commands longer
 # than the window may look odd while not wrapping. Switching back to wrap cuts
 # lines at the window's width.
+# This is where windows start: the background shell and launch script
+# windows (unless their wrap option says otherwise). A new window (Alt+c)
+# starts as the window it was opened from. A wrap_lines in
+# ~/.config/goat/local.toml overrides this one on that machine.
 wrap_lines = false
 # How long a line can get when not wrapping (80-4096 columns).
 nowrap_width = 512
@@ -105,15 +108,16 @@ repaint_seconds = 0
 # when it doesn't fit). New windows (Alt+c) always start in that directory.
 status_show_dir = true
 
+
 # Show the host name on the left of each window's bottom border (frames
-# "full" and "compact"; "none" has no bottom border):  └─ 💻myhost ──── w ─┘
+# "full" and "compact"; "none" has no bottom border):  └─ 💻myhost ────[]─┘
 # The name is "hostname" in ~/.config/goat/local.toml (up to 32 characters),
 # so you can give a machine a friendlier or shorter label; without it (or if
 # it is blank) it is the system's host name. local.toml and the system name
 # are re-read every 5 seconds, so a rename shows up by itself.
 show_host = true
 
-# Show the user name there too:  └─ 🧑alice 💻myhost ── w ─┘
+# Show the user name there too:  └─ 🧑alice 💻myhost ──[]─┘
 # It is the user of the window's foreground program: after "su" or
 # "sudo -i" it shows root (or whoever), and it changes back when you leave.
 # While the foreground program is ssh, the frame shows where ssh logs in:
@@ -122,6 +126,16 @@ show_host = true
 # (Linux; elsewhere goat's own user and host are shown). What happens inside
 # the ssh session (su, a further ssh) can't be seen from here.
 show_user = true
+
+# Then, when the window's current directory is in a git repository, the
+# repository and branch:  └─ 🧑alice 💻myhost 📖nontechno/goat 🌿main ──[]─┘
+# ("🌿detached a1b2c3d" when no branch is checked out). Owner and name come
+# from the "origin" remote's URL (git@github.com:nontechno/goat.git); a
+# local remote, or none, gives just a name. Every window is followed; a
+# branch switch shows within half a second and is listed in the events
+# window. goat reads .git itself (git needn't be installed). Not shown while
+# the window runs ssh: the directory goat sees is then the local one.
+show_git = true
 
 # Log of problems, for diagnosing them: crashes (with a stack trace and the
 # state of every window), a window's terminal emulator failing (with the
