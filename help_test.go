@@ -28,7 +28,7 @@ func TestHelpToggle(t *testing.T) {
 	m, _, a, b := wmWithBackground(t)
 	m.cols, m.rows = 100, 40
 	m.focus(b)
-	key(m, uv.Key{Code: uv.KeyF1})
+	key(m, uv.Key{Code: uv.KeyF1, Mod: uv.ModAlt})
 	if !m.helpShown() || !m.isHelp(m.focused) {
 		t.Fatal("F1 didn't show the help window, focused")
 	}
@@ -36,7 +36,7 @@ func TestHelpToggle(t *testing.T) {
 		t.Errorf("help window:\n%s", text)
 	}
 	all := strings.Join(m.helpLines(80), "\n")
-	for _, want := range []string{"Windows", "new window", "F1", "Alt+o", "Alt+h", "move left", "Mouse", "Esc, then a key"} {
+	for _, want := range []string{"Windows", "new window", "Alt+F1", "Alt+o", "Alt+h", "move left", "Mouse", "Esc, then a key"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("help lacks %q:\n%s", want, all)
 		}
@@ -47,13 +47,13 @@ func TestHelpToggle(t *testing.T) {
 		t.Fatal("focusing another window hid the help")
 	}
 	// F1 again hides it, though it isn't focused.
-	key(m, uv.Key{Code: uv.KeyF1})
+	key(m, uv.Key{Code: uv.KeyF1, Mod: uv.ModAlt})
 	if m.helpShown() || m.focused != a {
 		t.Fatalf("F1 again: shown %v, focused %v", m.helpShown(), m.focused.id)
 	}
 	// Shown again where it was; Alt+x hides it too.
 	m.help.win.x = 3
-	key(m, uv.Key{Code: uv.KeyF1})
+	key(m, uv.Key{Code: uv.KeyF1, Mod: uv.ModAlt})
 	if !m.helpShown() || m.help.win.x != 3 {
 		t.Fatalf("not back where it was: x=%d", m.help.win.x)
 	}
@@ -94,8 +94,8 @@ func TestHelpWindowIsAPanel(t *testing.T) {
 		t.Errorf("PageDown didn't scroll: %d → %d", top, w.scroll)
 	}
 	m.paste("rm -rf /")
-	if !strings.Contains(m.status, "takes no input") {
-		t.Errorf("paste: %q", m.status)
+	if !strings.Contains(m.barMsg, "takes no input") {
+		t.Errorf("paste: %q", m.barMsg)
 	}
 }
 
@@ -123,5 +123,30 @@ func TestHelpContents(t *testing.T) {
 	}
 	if !strings.Contains(text, "  Alt+y") {
 		t.Errorf("narrow layout:\n%s", text)
+	}
+}
+
+// F1 … F3 alone are the program's (mc's help, menu and view); goat's
+// windows are Alt+F1 … Alt+F3.
+func TestPlainFKeysReachPrograms(t *testing.T) {
+	m, _, _, b := wmWithBackground(t)
+	m.cols, m.rows = 100, 40
+	b.in = newInputQueue()
+	m.focus(b)
+	for _, c := range []rune{uv.KeyF1, uv.KeyF2, uv.KeyF3} {
+		key(m, uv.Key{Code: c})
+	}
+	if m.helpShown() || m.statusWinShown() || m.inventoryShown() {
+		t.Fatal("a plain F-key showed one of goat's windows")
+	}
+	b.in.mu.Lock()
+	got := string(b.in.buf)
+	b.in.mu.Unlock()
+	if got != "\x1bOP\x1bOQ\x1bOR" {
+		t.Fatalf("program got %q", got)
+	}
+	key(m, uv.Key{Code: uv.KeyF3, Mod: uv.ModAlt})
+	if !m.inventoryShown() {
+		t.Fatal("Alt+F3 didn't show the inventory")
 	}
 }

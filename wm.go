@@ -110,8 +110,8 @@ type WM struct {
 
 	ev events // the events window (events.go)
 
-	status      string          // status bar message
-	statusUntil time.Time       // when it disappears
+	barMsg      string          // a message in the status bar (setBarMessage)
+	barMsgUntil time.Time       // when it disappears
 	tabs        []tab           // status bar tab positions, for mouse clicks
 	quitAsk     *quitDialog     // the "Quit goat?" dialog, while it is up
 	settings    *settingsDialog // the settings dialog (Alt+o), while it is up
@@ -125,11 +125,11 @@ type WM struct {
 	local localOpts
 	// Aliases from alias.toml (alias.go), re-read when the file changes.
 	alias aliasState
-	// The help window (F1; help.go), the status window (F2; info.go) and
-	// the inventory (F3; inventory.go).
-	help helpState
-	info infoState
-	inv  inventoryState
+	// The help window (Alt+F1; help.go), the status window (Alt+F2; statuswin.go) and
+	// the inventory (Alt+F3; inventory.go).
+	help    helpState
+	statWin statusWinState
+	inv     inventoryState
 	// system.toml: their titles, keys, palettes, sizes and places
 	// (system.go).
 	sys systemState
@@ -161,9 +161,9 @@ type tab struct {
 // areaH is the height available to windows: everything but the status bar.
 func (m *WM) areaH() int { return max(m.rows-1, 1) }
 
-// setStatus shows a message in the status bar for d.
-func (m *WM) setStatus(msg string, d time.Duration) {
-	m.status, m.statusUntil = msg, time.Now().Add(d)
+// setBarMessage shows a message in the status bar for d.
+func (m *WM) setBarMessage(msg string, d time.Duration) {
+	m.barMsg, m.barMsgUntil = msg, time.Now().Add(d)
 	m.dirty = true
 }
 
@@ -260,6 +260,9 @@ func (m *WM) focus(w *Window) {
 	}
 	w.minimized = false // focusing a hidden window brings it back (minimize.go)
 	if m.focused != w {
+		if m.isHelp(m.focused) {
+			m.cancelKeyEdit() // a key being changed there isn't waited for any more
+		}
 		if m.focused != nil && !m.focused.closed {
 			m.focused.emu.Blur()
 		}
@@ -298,7 +301,7 @@ func (m *WM) cycle() []*Window {
 	if m.eventsShown() {
 		ws = append(ws, m.ev.win)
 	}
-	for _, w := range []*Window{m.help.win, m.info.win, m.inv.win} {
+	for _, w := range []*Window{m.help.win, m.statWin.win, m.inv.win} {
 		if m.panelShown(w) {
 			ws = append(ws, w)
 		}
@@ -566,11 +569,11 @@ func (m *WM) run(a action) error {
 		switch w := m.focused; {
 		case w == nil:
 		case w.background:
-			m.setStatus("the background shell can't be closed: type exit, or Alt+"+m.cfg.Keys.Quit+" to quit", 4*time.Second)
+			m.setBarMessage("the background shell can't be closed: type exit, or Alt+"+m.cfg.Keys.Quit+" to quit", 4*time.Second)
 		case m.isEvents(w):
-			m.setStatus("Alt+"+m.cfg.Keys.ShowEvents+" hides the events window", 3*time.Second)
+			m.setBarMessage("Alt+"+m.cfg.Keys.ShowEvents+" hides the events window", 3*time.Second)
 		case m.isPanel(w):
-			m.hidePanel(w) // (as F1, F2, F3 do)
+			m.hidePanel(w) // (as Alt+F1, Alt+F2, Alt+F3 do)
 		default:
 			m.remove(w)
 		}
@@ -596,7 +599,7 @@ func (m *WM) run(a action) error {
 		if w := m.focused; w != nil {
 			m.clearSelectionIn(w) // its columns may not exist afterwards
 			w.setWrap(w.nowrap)
-			m.setStatus(fmt.Sprintf("window %d: %s", m.number(w), map[bool]string{
+			m.setBarMessage(fmt.Sprintf("window %d: %s", m.number(w), map[bool]string{
 				true:  "long lines run past the edge (scroll sideways: Alt+< / Alt+>, Shift+wheel)",
 				false: "long lines wrap"}[w.nowrap]), 3*time.Second)
 			m.dirty = true
@@ -744,8 +747,10 @@ func (m *WM) handleKey(k uv.Key) error {
 	}
 	// The help window waiting for a shortcut's new key, or for Enter / Esc
 	// on a collision (keymap.go): every key goes there, Esc and Alt+keys
-	// included.
-	if h := &m.help; (h.capturing || h.pending != nil) && m.isHelp(m.focused) && !m.pasting {
+	// included; but an F-key that shows / hides one of goat's windows (it
+	// can't be a shortcut) still does that, and drops the change.
+	panelFKey := isFKey(k.Code) && m.panelForKey(k) != ""
+	if h := &m.help; (h.capturing || h.pending != nil) && m.isHelp(m.focused) && !m.pasting && !panelFKey {
 		if h.capturing {
 			m.helpCapture(k)
 		} else {
@@ -753,7 +758,7 @@ func (m *WM) handleKey(k uv.Key) error {
 		}
 		return nil
 	}
-	// goat's own windows: F1 help, F2 status, F3 inventory, or the keys
+	// goat's own windows: Alt+F1 help, Alt+F2 status, Alt+F3 inventory, or the keys
 	// system.toml gives them (system.go).
 	if name := m.panelForKey(k); name != "" && !m.pasting {
 		m.togglePanel(name)
@@ -864,7 +869,7 @@ func (m *WM) paste(text string) {
 		return
 	}
 	if m.isPanel(m.focused) {
-		m.setStatus("not pasted: the "+m.tabName(m.focused)+" window takes no input", 3*time.Second)
+		m.setBarMessage("not pasted: the "+m.tabName(m.focused)+" window takes no input", 3*time.Second)
 		return
 	}
 	if w := m.focused; w != nil && !w.closed && text != "" {
@@ -1115,7 +1120,7 @@ func (m *WM) handlePty(msg ptyMsg) {
 		return
 	}
 	if err := w.feed(msg.data); err != nil {
-		m.setStatus(fmt.Sprintf("window %d: %v", m.number(w), err), 10*time.Second)
+		m.setBarMessage(fmt.Sprintf("window %d: %v", m.number(w), err), 10*time.Second)
 		m.logEvent(w, evError, err.Error())
 	}
 	m.dirty = true
@@ -1158,7 +1163,7 @@ func (m *WM) backgroundExited(hadFocus bool) {
 	}
 	focus := m.focused
 	if err := m.startBackground(); err != nil {
-		m.setStatus("background shell: "+err.Error(), 10*time.Second)
+		m.setBarMessage("background shell: "+err.Error(), 10*time.Second)
 		m.logEvent(nil, evError, "background shell: "+err.Error())
 		return
 	}
@@ -1168,7 +1173,7 @@ func (m *WM) backgroundExited(hadFocus bool) {
 	if focus != nil {
 		m.focus(focus)
 	}
-	m.setStatus("background shell exited; started a new one", 4*time.Second)
+	m.setBarMessage("background shell exited; started a new one", 4*time.Second)
 }
 
 // tick runs twice a second: poll foreground process names, expire status
@@ -1204,9 +1209,9 @@ func (m *WM) tick(now time.Time) {
 	if m.refreshSystem(now) { // system.toml (system.go)
 		m.dirty = true
 	}
-	if m.infoShown() || m.inventoryShown() { // status and inventory (F2, F3)
+	if m.statusWinShown() || m.inventoryShown() { // status and inventory (Alt+F2, Alt+F3)
 		m.procs.request(now)
-		m.syncInfo(now)
+		m.syncStatusWin(now)
 		m.syncInventory(now)
 	}
 	if m.identOn {
@@ -1219,8 +1224,8 @@ func (m *WM) tick(now time.Time) {
 			}
 		}
 	}
-	if m.status != "" && now.After(m.statusUntil) {
-		m.status = ""
+	if m.barMsg != "" && now.After(m.barMsgUntil) {
+		m.barMsg = ""
 		m.dirty = true
 	}
 	if mn := now.Hour()*60 + now.Minute(); mn != m.lastMinute {
@@ -1242,10 +1247,10 @@ func (m *WM) swapWithBackground() {
 	case fw == nil || bg == nil || fw.closed || bg.closed:
 		return
 	case fw.background:
-		m.setStatus("Alt+s swaps a floating window with the background: focus one first", 3*time.Second)
+		m.setBarMessage("Alt+s swaps a floating window with the background: focus one first", 3*time.Second)
 		return
 	case m.isPanel(fw):
-		m.setStatus("the "+m.tabName(fw)+" window can't be swapped with the background", 3*time.Second)
+		m.setBarMessage("the "+m.tabName(fw)+" window can't be swapped with the background", 3*time.Second)
 		return
 	}
 	fi, bi := slices.Index(m.windows, fw), slices.Index(m.windows, bg)
@@ -1283,7 +1288,7 @@ func (m *WM) swapWithBackground() {
 	}
 	logger.Info("swapped with the background", "window", bg.id,
 		"now_floating", bg.displayTitle("process"), "now_background", fw.displayTitle("process"))
-	m.setStatus(fmt.Sprintf("swapped window %d with the background", m.number(bg)), 2*time.Second)
+	m.setBarMessage(fmt.Sprintf("swapped window %d with the background", m.number(bg)), 2*time.Second)
 	m.dirty = true
 }
 

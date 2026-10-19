@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -12,7 +13,7 @@ import (
 )
 
 // Panels: goat's own windows without a program. They are the events window
-// (Alt+-), help (F1), status (F2) and inventory (F3). Each is a regular
+// (Alt+-), help (Alt+F1), status (Alt+F2) and inventory (Alt+F3). Each is a regular
 // window: move it, resize it, select and copy from it. What sets them
 // apart is that they aren't numbered, Alt+0 doesn't hide them, they can't
 // be swapped with the background, and nothing is typed or pasted into
@@ -21,7 +22,7 @@ import (
 
 // isPanel reports whether w is one of goat's panel windows.
 func (m *WM) isPanel(w *Window) bool {
-	return m.isEvents(w) || m.isHelp(w) || m.isInfo(w) || m.isInventory(w)
+	return m.isEvents(w) || m.isHelp(w) || m.isStatusWin(w) || m.isInventory(w)
 }
 
 // panelShown reports whether the panel w is on screen.
@@ -92,6 +93,9 @@ func (m *WM) hidePanel(w *Window) {
 		return
 	}
 	m.trackPanelGeometry(time.Now(), true) // a place it was moved to is saved now (system.go)
+	if m.isHelp(w) {
+		m.cancelKeyEdit()
+	}
 	m.clearSelectionIn(w)
 	m.windows = slices.Delete(m.windows, i, i+1)
 	if m.drag.win == w {
@@ -178,8 +182,31 @@ func showPanelLines(w *Window, from, to int) {
 	w.scroll = clamp(sb-first, 0, sb)
 }
 
-// panelSelectionBusy reports whether the user is dragging a selection in w
-// (a refresh then waits, not to pull the text from under the mouse).
-func (m *WM) panelSelectionBusy(w *Window) bool {
-	return m.sel != nil && m.sel.win == w && m.sel.dragging
+// panelSelectionBusy reports whether the user is selecting text in w, or
+// has text selected there: a refresh then waits, so the text isn't pulled
+// from under the mouse and the selection stays to be copied (a click
+// elsewhere ends it). A new width is laid out all the same.
+func (m *WM) panelSelectionBusy(w *Window, shownW int) bool {
+	s := m.sel
+	return s != nil && s.win == w && (s.dragging || s.visible()) && w.contentW() == shownW
+}
+
+// printable drops control and other invisible characters from text a
+// program supplied (a title, a process name, a directory, a message) before
+// goat draws it or writes it into a panel: tabs and line breaks become
+// spaces, the rest is dropped, so no program can put escape sequences or
+// cursor moves into goat's own text.
+func printable(s string) string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return !unicode.IsPrint(r) }) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r':
+			return ' '
+		case !unicode.IsPrint(r):
+			return -1
+		}
+		return r
+	}, s)
 }

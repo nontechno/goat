@@ -78,6 +78,10 @@ func (s *hostScreen) setup(mouse bool) error {
 	return err
 }
 
+// askCellSize asks the terminal for its cell size in pixels again (CSI 16
+// t; the answer comes as a CellSizeEvent).
+func (s *hostScreen) askCellSize() { _, _ = io.WriteString(s.out, "\x1b[16t") }
+
 // teardown undoes setup. The cursor is always shown and its shape reset to
 // the terminal's default, whatever the programs in the windows did to it.
 func (s *hostScreen) teardown(mouse bool) {

@@ -11,16 +11,16 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// The inventory window (F3): every window, with what runs in it (the
+// The inventory window (Alt+F3): every window, with what runs in it (the
 // processes under its shell, their memory and CPU), where (directory,
 // user@host, git), its size and history, and what its program reports
-// (OSC 7501, status.go). Refreshed every second while on screen.
+// (OSC 7501, appstatus.go). Refreshed every second while on screen.
 //
 // One window is chosen (highlighted): ↑ ↓ (and Home/End) choose another,
 // a click chooses one, Enter or a double click goes to it (focuses it,
 // and brings it back if Alt+0 hid it). PageUp/PageDown scroll. It is a
-// panel (panels.go): F3 shows it (focused, choosing the window that was
-// active), F3 again hides it, focused or not; Alt+x hides it too.
+// panel (panels.go): Alt+F3 shows it (focused, choosing the window that was
+// active), Alt+F3 again hides it, focused or not; Alt+x hides it too.
 
 // inventoryState is the inventory window and what it shows.
 type inventoryState struct {
@@ -48,7 +48,7 @@ func (m *WM) isInventory(w *Window) bool { return w != nil && w == m.inv.win }
 // inventoryShown reports whether the inventory window is on screen.
 func (m *WM) inventoryShown() bool { return m.panelShown(m.inv.win) }
 
-// toggleInventory is F3: show the inventory window, choosing the active
+// toggleInventory is Alt+F3: show the inventory window, choosing the active
 // window, or hide it.
 func (m *WM) toggleInventory() {
 	if m.inventoryShown() {
@@ -80,11 +80,11 @@ func (m *WM) inventoryEntries() []*Window {
 // first time, resized, a second passed, or a new process sample arrived.
 func (m *WM) syncInventory(now time.Time) {
 	w := m.inv.win
-	if !m.inventoryShown() || m.panelSelectionBusy(w) {
+	if !m.inventoryShown() || m.panelSelectionBusy(w, m.inv.shownW) {
 		return
 	}
 	procs := m.procs.table.Load()
-	if w.contentW() == m.inv.shownW && now.Sub(m.inv.at) < infoEvery && procs == m.inv.procs {
+	if w.contentW() == m.inv.shownW && now.Sub(m.inv.at) < panelEvery && procs == m.inv.procs {
 		return
 	}
 	m.writeInventory(now)
@@ -115,7 +115,7 @@ func (m *WM) inventoryLines(width int) ([]string, []invRow) {
 	lines := []string{
 		bold + fitStart(fmt.Sprintf("goat: %s", nouns(floating, "floating window", "floating windows"))+
 			map[bool]string{true: " + the background", false: ""}[m.bg != nil], width) + plain,
-		dim + fitStart("↑ ↓ choose · Enter go to it · F3 close", width) + plain,
+		dim + fitStart("↑ ↓ choose · Enter go to it · "+m.panelKeyName("inventory")+" close", width) + plain,
 		"",
 	}
 	var rows []invRow
@@ -123,7 +123,7 @@ func (m *WM) inventoryLines(width int) ([]string, []invRow) {
 	track := m.meterTrack(m.inv.win)
 	for _, e := range entries {
 		row := invRow{win: e, first: len(lines)}
-		head := m.tabName(e)
+		head := printable(m.tabName(e))
 		if flags := m.inventoryFlags(e); flags != "" {
 			head += "   " + flags
 		}
@@ -139,7 +139,7 @@ func (m *WM) inventoryLines(width int) ([]string, []invRow) {
 				lines = append(lines, fitWide("    "+raw, width))
 				continue
 			}
-			for _, part := range wrapWords(d, max(width-6, 10)) {
+			for _, part := range wrapWords(printable(d), max(width-6, 10)) {
 				lines = append(lines, fitStart("    "+part, width))
 			}
 		}
@@ -183,10 +183,13 @@ func (m *WM) inventoryDetails(w *Window, procs *procTable, width int, track stri
 	if m.isPanel(w) {
 		what := map[string]string{
 			"events":    "bells, notifications, exits, … (Alt+" + m.cfg.Keys.ShowEvents + ")",
-			"help":      "keys and mouse (F1)",
-			"status":    "goat itself (F2)",
-			"inventory": "every window (F3)",
+			"help":      "keys and mouse",
+			"status":    "goat itself",
+			"inventory": "every window",
 		}[m.panelName(w)]
+		if k := m.panelKeyName(m.panelName(w)); k != "" && m.panelName(w) != "events" {
+			what += " (" + k + ")"
+		}
 		return []string{what}
 	}
 	var out []string
@@ -232,8 +235,8 @@ func (m *WM) inventoryDetails(w *Window, procs *procTable, width int, track stri
 	out = append(out, strings.Join(where, " · "))
 
 	// What its program reports (OSC 7501).
-	ids := make([]string, 0, len(w.status.records))
-	for id := range w.status.records {
+	ids := make([]string, 0, len(w.appStatus.records))
+	for id := range w.appStatus.records {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
@@ -243,8 +246,8 @@ func (m *WM) inventoryDetails(w *Window, procs *procTable, width int, track stri
 			out = append(out, fmt.Sprintf("status: %d more", len(ids)-most))
 			break
 		}
-		r := w.status.records[id].statusReport
-		out = append(out, "status: "+statusShortText(id, r, w.status.app(id)))
+		r := w.appStatus.records[id].statusReport
+		out = append(out, "status: "+statusShortText(id, r, w.appStatus.app(id)))
 		if r.progress >= 0 { // its progress as a bar too
 			pct := fmt.Sprintf("%d%%", r.progress)
 			out = append(out, rawLine+"        "+meterBar(float64(r.progress)/100, meterWidth(width-8-len(pct)-1), track)+" "+pct)

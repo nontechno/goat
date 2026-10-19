@@ -5,13 +5,13 @@ import (
 	"time"
 )
 
-// The help window (F1): every keyboard shortcut and mouse action, with the
+// The help window (Alt+F1): every keyboard shortcut and mouse action, with the
 // keys as config.toml (and keymap.toml) bind them. Shortcuts can be changed
 // in it (keymap.go): ↑ ↓ choose one, Enter changes its key. It is a regular window without a program,
 // like the events window: move it, resize it, scroll it (arrows,
 // PageUp/PageDown, Home/End while it has the focus), select and copy from
-// it; other windows can be used while it is open. F1 shows it (focused),
-// and F1 again hides it, whether it has the focus or not; Alt+x hides it
+// it; other windows can be used while it is open. Alt+F1 shows it (focused),
+// and Alt+F1 again hides it, whether it has the focus or not; Alt+x hides it
 // too. Its contents are laid out for its width, again whenever it changes.
 
 // helpState is the help window, what it was last laid out for, and the
@@ -36,7 +36,7 @@ func (m *WM) helpShown() bool {
 	return m.panelShown(m.help.win)
 }
 
-// toggleHelp is F1: show the help window (on top, focused, where it was last
+// toggleHelp is Alt+F1: show the help window (on top, focused, where it was last
 // time), or hide it if it is on screen.
 func (m *WM) toggleHelp() {
 	if m.helpShown() {
@@ -151,7 +151,7 @@ func (m *WM) helpText() []helpSection {
 			fixed("↑ ↓ PageUp PageDown", "scroll"),
 			fixed("Home/End", "the top / the end"),
 		}},
-		{"In the inventory (F3)", []helpRow{
+		{"In the inventory (" + m.panelKeyName("inventory") + ")", []helpRow{
 			fixed("↑ ↓ Home/End", "choose a window"),
 			fixed("Enter", "go to it (brings it back if hidden)"),
 			fixed("click / double click", "choose / go to it"),

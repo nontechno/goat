@@ -13,7 +13,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// Changing goat's shortcuts in the help window (F1), kept in
+// Changing goat's shortcuts in the help window (Alt+F1), kept in
 // ~/.config/goat/keymap.toml:
 //
 //	[keys]
@@ -104,7 +104,7 @@ func loadKeymap(path string, c *Config) []string {
 // keys) to keymap.toml.
 func saveKeymap(path string, c *Config, base KeyConfig) error {
 	var b strings.Builder
-	b.WriteString("# keymap.toml: goat's Alt+key shortcuts as changed in the help window (F1).\n")
+	b.WriteString("# keymap.toml: goat's Alt+key shortcuts as changed in the help window (Alt+F1).\n")
 	b.WriteString("# goat writes this file; keys here win over config.toml's [keys].\n")
 	b.WriteString("# One shortcut per line: name = \"key\" (names as in config.toml [keys]).\n\n[keys]\n")
 	baseCfg := &Config{Keys: base}
@@ -192,6 +192,19 @@ func (m *WM) helpKey(k uv.Key) bool {
 	return true
 }
 
+// cancelKeyEdit drops a change of key the help window is waiting for (a
+// new key, or Enter for a collision): it lost the focus, or was hidden.
+func (m *WM) cancelKeyEdit() {
+	h := &m.help
+	if !h.capturing && h.pending == nil {
+		return
+	}
+	h.capturing, h.pending, h.msg = false, nil, "not changed"
+	if h.win != nil {
+		m.rewriteHelp(false)
+	}
+}
+
 // helpCapture takes the new key for the chosen shortcut (every key goes
 // here while the help window waits for it).
 func (m *WM) helpCapture(k uv.Key) {
@@ -270,7 +283,7 @@ func (m *WM) applyKeyEdit(e keyEdit) {
 		}
 	}
 	logger.Info("shortcut changed", "action", actionNames[e.act], "key", string(e.key))
-	m.setStatus(msg, 4*time.Second)
+	m.setBarMessage(msg, 4*time.Second)
 	h.msg = msg
 	m.rewriteHelp(false)
 }

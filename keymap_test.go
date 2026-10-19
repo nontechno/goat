@@ -17,7 +17,7 @@ func helpWM(t *testing.T) (*WM, string) {
 	m.cols, m.rows = 110, 50
 	m.keymapPath = filepath.Join(t.TempDir(), keymapFile)
 	m.keysBase = m.cfg.Keys
-	key(m, uv.Key{Code: uv.KeyF1})
+	key(m, uv.Key{Code: uv.KeyF1, Mod: uv.ModAlt})
 	return m, m.keymapPath
 }
 
@@ -175,5 +175,35 @@ func TestHelpClick(t *testing.T) {
 	m.handleMouse(click)
 	if !m.help.capturing {
 		t.Fatal("double click didn't start the change")
+	}
+}
+
+// A change waiting for its key is dropped when the help window loses the
+// focus: the next time it has it, keys are its own again.
+func TestHelpCaptureEndsOnBlur(t *testing.T) {
+	m, _ := helpWM(t)
+	key(m, uv.Key{Code: uv.KeyDown})
+	key(m, uv.Key{Code: uv.KeyEnter})
+	if !m.help.capturing {
+		t.Fatal("not waiting for a key")
+	}
+	m.focus(m.bg) // a click on another window
+	if m.help.capturing || !strings.Contains(helpText(m), "not changed") {
+		t.Fatalf("still waiting: %v", m.help.capturing)
+	}
+	m.focus(m.help.win)
+	key(m, uv.Key{Code: 'y', Mod: uv.ModAlt})
+	if m.cfg.Keys.NewWindow != "c" {
+		t.Fatalf("a later key changed it: %q", m.cfg.Keys.NewWindow)
+	}
+	// A collision waiting for Enter: hiding the window drops it too.
+	key(m, uv.Key{Code: uv.KeyEnter})
+	key(m, uv.Key{Code: 'n', Mod: uv.ModAlt}) // focus next's key
+	if m.help.pending == nil {
+		t.Fatal("no collision")
+	}
+	key(m, uv.Key{Code: uv.KeyF1, Mod: uv.ModAlt})
+	if m.help.pending != nil || m.cfg.Keys.NewWindow != "c" {
+		t.Fatal("collision kept after hiding")
 	}
 }

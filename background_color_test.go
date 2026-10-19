@@ -14,7 +14,7 @@ var (
 	c230 = ansi.IndexedColor(230)
 )
 
-// The settings for colors that now come from the .color files (and the old
+// The settings for colors that now come from palettes (and the old
 // compact = true/false) are reported as unknown, not silently used.
 func TestRemovedSettings(t *testing.T) {
 	for _, in := range []string{

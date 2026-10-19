@@ -234,16 +234,18 @@ func blackOrWhite(bg color.Color) color.Color {
 // wrapWords breaks s into lines of at most width columns, at spaces.
 func wrapWords(s string, width int) []string {
 	var lines []string
-	line := ""
+	line, lineW := "", 0
 	for _, w := range strings.Fields(s) {
+		ww := textWidth(w) // in cells, as drawn: "·", "…" are 1, emoji 2
 		switch {
 		case line == "":
-			line = w
-		case len(line)+1+len(w) <= width:
+			line, lineW = w, ww
+		case lineW+1+ww <= width:
 			line += " " + w
+			lineW += 1 + ww
 		default:
 			lines = append(lines, line)
-			line = w
+			line, lineW = w, ww
 		}
 	}
 	if line != "" {

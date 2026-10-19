@@ -76,8 +76,8 @@ func TestBackgroundCannotMoveResizePinOrClose(t *testing.T) {
 	if bg.x != 0 || bg.y != 0 || bg.w != 40 || bg.h != 11 || bg.pinned || !slices.Contains(m.windows, bg) {
 		t.Fatalf("background changed: %d,%d %dx%d pinned=%v", bg.x, bg.y, bg.w, bg.h, bg.pinned)
 	}
-	if !strings.Contains(m.status, "can't be closed") {
-		t.Fatalf("status %q", m.status)
+	if !strings.Contains(m.barMsg, "can't be closed") {
+		t.Fatalf("status %q", m.barMsg)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestNewWindowCentredOverBackground(t *testing.T) {
 
 func TestStatusBar(t *testing.T) {
 	m, bg, a, b := wmWithBackground(t)
-	m.setStatus("copied 5 characters", 1e9)
+	m.setBarMessage("copied 5 characters", 1e9)
 	got := render(m)
 	if strings.Contains(got[11], "1:b ") || strings.Contains(got[11], "1:b\u00a0") {
 		t.Fatalf("partial tab drawn: %q", got[11])
@@ -136,7 +136,7 @@ func TestStatusBar(t *testing.T) {
 
 func TestStatusTabsWinOverLongMessage(t *testing.T) {
 	m, _, _, _ := wmWithBackground(t)
-	m.setStatus(strings.Repeat("very long warning ", 10), 1e9)
+	m.setBarMessage(strings.Repeat("very long warning ", 10), 1e9)
 	got := render(m)[11]
 	for _, want := range []string{"0:bash", "1:bash", "2:bash", "…"} {
 		if !strings.Contains(got, want) {

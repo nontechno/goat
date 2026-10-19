@@ -10,7 +10,7 @@ import (
 
 // Border colors on colored windows.
 //
-// A window's frame takes its Alt+b background, so the theme's border colors
+// A window's frame takes its palette's background (Alt+t), so the theme's border colors
 // (cyan, gray, yellow by default) can disappear on some backgrounds: gray on
 // a dark gray, yellow on a light yellow. visibleOn keeps a color when it
 // reads well enough on the background, and otherwise moves it lighter (on a
@@ -125,10 +125,9 @@ func nearest256(r, g, b float64) color.Color {
 
 // ---- text colors -------------------------------------------------------------
 //
-// A window's text color must stay readable on its background: Alt+f skips
-// text colors that aren't (theme.min_text_contrast), and Alt+b, new windows
-// and the saved background-window colors change the text color when the
-// background would hide it. "The terminal's own" color (nil) counts as the
+// A window's text color must stay readable on its background: palettes
+// (Alt+t), new windows and the saved background-window colors change the
+// text color when the background would hide it (theme.min_text_contrast). "The terminal's own" color (nil) counts as the
 // color the terminal reported, or a guess from its background.
 
 // shownBg is the background w's text is drawn on.

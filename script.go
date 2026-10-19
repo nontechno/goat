@@ -286,7 +286,7 @@ func (m *WM) launchApps(apps []appSpec, name string) {
 			msg := where + ": " + fmt.Sprintf(f, args...)
 			logger.Warn("launch script", "msg", msg)
 			m.logEvent(nil, evConfig, msg)
-			m.setStatus(msg, 15*time.Second)
+			m.setBarMessage(msg, 15*time.Second)
 		}
 		spec := openSpec{dir: m.dir, frame: m.cfg.frame, wrap: m.cfg.WrapLines, title: a.title,
 			hold: a.hold}
@@ -329,8 +329,8 @@ func (m *WM) launchApps(apps []appSpec, name string) {
 		m.focus(focus)
 		m.raise(focus)
 	}
-	if opened > 0 && m.status == "" {
-		m.setStatus(fmt.Sprintf("%s: opened %d window%s", name, opened, pick(opened == 1, "", "s")), 4*time.Second)
+	if opened > 0 && m.barMsg == "" {
+		m.setBarMessage(fmt.Sprintf("%s: opened %d window%s", name, opened, pick(opened == 1, "", "s")), 4*time.Second)
 	}
 	m.dirty = true
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +11,10 @@ import (
 )
 
 // hookedWindow is a window with goat's sequence hooks, as newWindow sets
-// it up, and a reader collecting what goes back to its program.
-func hookedWindow(t *testing.T, m *WM) (*Window, func(time.Duration) string) {
+// it up, and replies: what went back to its program since the last call.
+// Replies go out in order, so replies asks for the operating status (DSR
+// 5) last and reads up to its answer: no guessing how long to wait.
+func hookedWindow(t *testing.T, m *WM) (*Window, func() string) {
 	t.Helper()
 	w := fakeWindow(7, 0, 0, 42, 12, true, false)
 	w.mouseModes = map[ansi.DECMode]bool{}
@@ -30,10 +33,17 @@ func hookedWindow(t *testing.T, m *WM) (*Window, func(time.Duration) string) {
 			ch <- string(buf[:n])
 		}
 	}()
-	t.Cleanup(func() { _ = w.emu.Close() })
-	replies := func(wait time.Duration) string {
+	t.Cleanup(func() { // (as Window.close: emu.Close races with Read)
+		if pw, ok := w.emu.InputPipe().(*io.PipeWriter); ok {
+			_ = pw.CloseWithError(io.EOF)
+		}
+	})
+	marker := ansi.DeviceStatusReport(ansi.DECStatusReport(0)) // the emulator's answer to DSR 5: "OK"
+	replies := func() string {
+		t.Helper()
+		_ = w.feed([]byte("\x1b[5n")) // (its reader takes the answer: ch has room)
 		var b strings.Builder
-		end := time.After(wait)
+		deadline := time.After(10 * time.Second)
 		for {
 			select {
 			case s, ok := <-ch:
@@ -41,8 +51,11 @@ func hookedWindow(t *testing.T, m *WM) (*Window, func(time.Duration) string) {
 					return b.String()
 				}
 				b.WriteString(s)
-			case <-end:
-				return b.String()
+				if got, done := strings.CutSuffix(b.String(), marker); done {
+					return got
+				}
+			case <-deadline:
+				t.Fatalf("no answer to DSR 5; so far %q", b.String())
 			}
 		}
 	}
@@ -60,7 +73,7 @@ func TestClaudeStartupBurst(t *testing.T) {
 	for i := 0; i < len(burst); i++ {
 		_ = w.feed([]byte{burst[i]})
 	}
-	got := replies(300 * time.Millisecond)
+	got := replies()
 	want := []string{
 		"\x1bP>|goat " + version + "\x1b\\",
 		"\x1b]7501;?:states=idle,working,done,blocked,error,clear:kinds=permission,question,auth\x1b\\",
@@ -93,13 +106,13 @@ func TestWindowSizeReplies(t *testing.T) {
 	m, _, _, _ := wmWithBackground(t)
 	w, replies := hookedWindow(t, m)
 	_ = w.feed([]byte("\x1b[16t\x1b[14t\x1b[18t"))
-	got := replies(200 * time.Millisecond)
+	got := replies()
 	if got != "\x1b[8;"+itoa(w.emu.Height())+";"+itoa(w.emu.Width())+"t" {
 		t.Errorf("unknown cell size: %q", got)
 	}
 	m.handleEvent(uv.CellSizeEvent{Width: 10, Height: 20}, nil)
 	_ = w.feed([]byte("\x1b[14t"))
-	if got := replies(200 * time.Millisecond); got != "\x1b[4;"+itoa(20*w.emu.Height())+";"+itoa(10*w.emu.Width())+"t" {
+	if got := replies(); got != "\x1b[4;"+itoa(20*w.emu.Height())+";"+itoa(10*w.emu.Width())+"t" {
 		t.Errorf("text area: %q", got)
 	}
 }
@@ -109,36 +122,48 @@ func TestWindowSizeReplies(t *testing.T) {
 func TestColorSchemeReports(t *testing.T) {
 	m, _, _, _ := paletteWM(t)
 	w, replies := hookedWindow(t, m)
-	m.hostBg = ansi.IndexedColor(16) // a black terminal
+	m.hostBg = ansi.IndexedColor(16)   // a black terminal
+	_ = w.feed([]byte("\x1b[?2031$p")) // has goat the mode? yes, reset
+	if got := replies(); got != "\x1b[?2031;2$y" {
+		t.Fatalf("DECRQM before: %q", got)
+	}
 	_ = w.feed([]byte("\x1b[?996n"))
-	if got := replies(200 * time.Millisecond); got != "\x1b[?997;1n" {
+	if got := replies(); got != "\x1b[?997;1n" {
 		t.Fatalf("query: %q", got)
 	}
 	_ = w.feed([]byte("\x1b[?2031h"))
-	if got := replies(200 * time.Millisecond); got != "\x1b[?997;1n" {
+	if got := replies(); got != "\x1b[?997;1n" {
 		t.Fatalf("on: %q", got)
 	}
 	m.setCombo(w, m.combos.byTheme[2][0]) // a light palette
-	if got := replies(200 * time.Millisecond); got != "\x1b[?997;2n" {
+	if got := replies(); got != "\x1b[?997;2n" {
 		t.Fatalf("light palette: %q", got)
 	}
 	m.setCombo(w, m.combos.byTheme[2][5]) // light again: nothing new
 	m.setHostColors(nil, ansi.IndexedColor(231))
-	if got := replies(200 * time.Millisecond); got != "" {
+	if got := replies(); got != "" {
 		t.Fatalf("no change, yet: %q", got)
 	}
 	m.setCombo(w, -1) // the terminal's colors: now white
-	if got := replies(200 * time.Millisecond); got != "" {
+	if got := replies(); got != "" {
 		t.Fatalf("still light: %q", got)
 	}
 	m.setHostColors(nil, ansi.IndexedColor(16)) // the terminal turned dark
-	if got := replies(200 * time.Millisecond); got != "\x1b[?997;1n" {
+	if got := replies(); got != "\x1b[?997;1n" {
 		t.Fatalf("terminal dark: %q", got)
+	}
+	_ = w.feed([]byte("\x1b[?2031$p"))
+	if got := replies(); got != "\x1b[?2031;1$y" {
+		t.Fatalf("DECRQM set: %q", got)
 	}
 	_ = w.feed([]byte("\x1b[?2031l"))
 	m.setHostColors(nil, ansi.IndexedColor(231))
-	if got := replies(200 * time.Millisecond); got != "" {
+	if got := replies(); got != "" {
 		t.Fatalf("mode off, yet: %q", got)
+	}
+	_ = w.feed([]byte("\x1b[?2031$p\x1b[?2026$p")) // (and another mode: the emulator's answer)
+	if got := replies(); !strings.HasPrefix(got, "\x1b[?2031;2$y\x1b[?2026;") {
+		t.Fatalf("DECRQM reset: %q", got)
 	}
 }
 

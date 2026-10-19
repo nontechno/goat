@@ -17,7 +17,7 @@ disable_mouse = false
 #   "none"    - only a top line with the title; no side or bottom borders.
 #               Drag the middle of the line to move; drag either end, or
 #               the window's bottom-right 2x2 cells, to resize.
-frame = "compact"
+frame = "full"
 
 # After pressing Esc, a letter key pressed within this many milliseconds is
 # treated as Alt+key (for terminals where Alt doesn't work). 0 disables it.
@@ -35,7 +35,7 @@ alt_timeout_ms = 200
 #   "auto" - on when goat runs on macOS or in Terminal.app / iTerm2
 #            (over SSH that usually can't be detected: set "on")
 #   "on" / "off"
-mac_option_keys = "on"
+mac_option_keys = "auto"
 
 # macOS Terminal sends Option+Left / Option+Right as Esc b / Esc f, the same
 # as Alt+b / Alt+f (word left / right in a shell), so they would go to the
@@ -73,7 +73,7 @@ scrollback_lines = 1000
 # windows (unless their wrap option says otherwise). A new window (Alt+c)
 # starts as the window it was opened from. A wrap_lines in
 # ~/.config/goat/local.toml overrides this one on that machine.
-wrap_lines = false
+wrap_lines = true
 # How long a line can get when not wrapping (80-4096 columns).
 nowrap_width = 512
 
@@ -106,7 +106,7 @@ repaint_seconds = 0
 # Show the active window's current directory in the status bar, left of the
 # clock (~ for your home folder; shortened from the left, e.g. "…/src/goat",
 # when it doesn't fit). New windows (Alt+c) always start in that directory.
-status_show_dir = true
+status_show_dir = false
 
 
 # Show the host name on the left of each window's bottom border (frames
@@ -162,7 +162,7 @@ title_source = "process"
 #            or terminfo, or a terminal known for it (iTerm2 also over ssh,
 #            through LC_TERMINAL; WezTerm, ghostty, VS Code, ...)
 #   "on"   - always: when "auto" guesses wrong, e.g. over ssh from a
-#            terminal ssh doesn't pass COLORTERM for. F2 (status) shows
+#            terminal ssh doesn't pass COLORTERM for. Alt+F2 (status) shows
 #            what goat decided, and why.
 #   "off"  - never
 true_color = "auto"
@@ -219,7 +219,7 @@ min_text_contrast = 3
 
 [keys]
 # Every binding is a single character used with the Alt modifier.
-# Keys changed in the help window (F1: choose a shortcut, Enter, press the
+# Keys changed in the help window (Alt+F1: choose a shortcut, Enter, press the
 # new key) are kept in ~/.config/goat/keymap.toml and win over these.
 # Arrow keys always work too: Alt+arrow moves, Alt+Shift+arrow resizes.
 # Alt+1..9 focus windows by the number shown in their title; Alt+0 focuses

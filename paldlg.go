@@ -82,7 +82,7 @@ func (m *WM) openPalette() {
 		return
 	}
 	if m.combos == nil {
-		m.setStatus(noCombos, 6*time.Second)
+		m.setBarMessage(noCombos, 6*time.Second)
 		return
 	}
 	m.cancelEsc()
@@ -147,7 +147,7 @@ func (m *WM) closePalette(keep bool) {
 	case w.background:
 		m.saveDesktop() // local.toml
 	}
-	m.setStatus(m.tabName(w)+": "+name, 4*time.Second)
+	m.setBarMessage(m.tabName(w)+": "+name, 4*time.Second)
 }
 
 // saveLingo writes the lingo to local.toml.

@@ -146,3 +146,14 @@ func TestQuitDialogSelectionIsClear(t *testing.T) {
 	_ = m.handleKey(uv.Key{Code: uv.KeyTab})
 	check(d.quitBtn, d.cancelBtn, "Quit", "Cancel")
 }
+
+// Lines are wrapped by the cells they take, not their bytes: "·" and "…"
+// are 3 bytes but one cell.
+func TestWrapWordsCells(t *testing.T) {
+	if got := wrapWords("a · b · c … d", 9); len(got) != 2 || got[0] != "a · b · c" || got[1] != "… d" {
+		t.Errorf("%q", got)
+	}
+	if got := wrapWords("日本 語", 4); len(got) != 2 {
+		t.Errorf("wide: %q", got)
+	}
+}

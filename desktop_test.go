@@ -142,6 +142,19 @@ func TestDesktopColorsSavedAndRestored(t *testing.T) {
 		t.Fatalf("restored bg %v palette %d", w.bgColor, w.pal)
 	}
 
+	// Restored by the palette's id: with 24-bit colors on, its 24-bit
+	// colors (not the 256 colors saved), still that palette.
+	if d.pal != want.id {
+		t.Fatalf("palette id saved: %d, want %d", d.pal, want.id)
+	}
+	m.combos.trueColor = true
+	m.desk, _, _ = readDesktopColors(m.localPath)
+	m.restoreDesktop(w)
+	if !sameColor(w.bgColor, m.combos.bg(want)) || w.pal != m.combos.byTheme[0][1]+1 {
+		t.Fatalf("restored by id: bg %v palette %d", w.bgColor, w.pal)
+	}
+	m.combos.trueColor = false
+
 	// Saved colors that wouldn't show together get a readable text color.
 	m.desk = desktopColors{bg: ansi.IndexedColor(231), fg: ansi.IndexedColor(255)}
 	m.restoreDesktop(w)

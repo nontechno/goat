@@ -62,7 +62,7 @@ func TestStatusShowsDir(t *testing.T) {
 	}
 	// A message and the directory share the space; the message comes first.
 	m.resizeScreen(90, 12)
-	m.setStatus("copied 5 characters", time.Hour)
+	m.setBarMessage("copied 5 characters", time.Hour)
 	status = render(m)[11]
 	if !strings.Contains(status, "copied 5 characters") || !strings.Contains(status, "goat "+clock) {
 		t.Fatalf("status with message %q", status)

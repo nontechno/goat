@@ -37,7 +37,7 @@ func TestCursorColorFollowsWindowColors(t *testing.T) {
 	if got := frame(cur); strings.Contains(got, "\x1b]12;") {
 		t.Fatalf("unchanged color sent again: %q", got)
 	}
-	cur.color = nil // focus moved to a window without Alt+b colors
+	cur.color = nil // focus moved to a window without palette colors
 	if got := frame(cur); !strings.Contains(got, ansi.ResetCursorColor) {
 		t.Fatalf("cursor color not reset: %q", got)
 	}

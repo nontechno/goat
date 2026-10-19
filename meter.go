@@ -11,7 +11,7 @@ import (
 )
 
 // Meters: a value drawn as a horizontal bar beside its number, in the
-// status (F2) and inventory (F3) windows: CPU, memory, a program's
+// status (Alt+F2) and inventory (Alt+F3) windows: CPU, memory, a program's
 // progress.
 //
 //	██████████▋░░░░░░░░░░░░░░ 43%     (░: the track, a shade of the background)

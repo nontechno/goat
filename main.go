@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"runtime/pprof"
 	"strings"
@@ -28,7 +29,44 @@ import (
 	"github.com/charmbracelet/x/term"
 )
 
-var version = "dev"
+// version is goat's version: set when building a release
+// (-ldflags "-X main.version=1.2.0"); otherwise what the Go toolchain
+// recorded (versionFromBuild).
+var version = versionFromBuild(debug.ReadBuildInfo())
+
+// pseudoVersion matches a Go pseudo-version's end ("…-20261019120000-3f2a9c1d2e3f"):
+// a commit, not a release.
+var pseudoVersion = regexp.MustCompile(`[-.]\d{14}-[0-9a-f]{12}(\+incompatible)?$`)
+
+// versionFromBuild is the module's version when goat was installed with
+// go install …@v1.2.0, else "dev" with the commit it was built from
+// ("dev-3f2a9c1", "+" when there were changes not committed), else "dev".
+func versionFromBuild(bi *debug.BuildInfo, ok bool) string {
+	if !ok || bi == nil {
+		return "dev"
+	}
+	if v := bi.Main.Version; v != "" && v != "(devel)" && !pseudoVersion.MatchString(v) {
+		return strings.TrimPrefix(v, "v")
+	}
+	var rev string
+	modified := false
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	if rev == "" {
+		return "dev"
+	}
+	rev = "dev-" + rev[:min(len(rev), 7)]
+	if modified {
+		rev += "+"
+	}
+	return rev
+}
 
 const (
 	// keySeqTimeout is how long the input decoder waits to see whether an
@@ -68,6 +106,10 @@ func main() {
 	if *showVersion {
 		fmt.Println("goat", version)
 		return
+	}
+	if why := unsupportedPlatform(); why != "" {
+		fmt.Fprintln(os.Stderr, "goat:", why)
+		os.Exit(1)
 	}
 
 	cfg, usedPath, warns := LoadConfig(*cfgPath)
@@ -206,7 +248,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	go func() { _ = rd.StreamEvents(ctx, events) }()
 
 	winch := make(chan os.Signal, 1)
-	signal.Notify(winch, syscall.SIGWINCH)
+	signal.Notify(winch, resizeSignals()...)
 	defer signal.Stop(winch)
 
 	localPath := localConfigPath()
@@ -289,7 +331,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 		if len(warns) > 1 {
 			msg += fmt.Sprintf(" (+%d more, listed when goat exits)", len(warns)-1)
 		}
-		m.setStatus(msg, 20*time.Second)
+		m.setBarMessage(msg, 20*time.Second)
 	}
 	copyCmd := clipboardCommand(cfg.CopyCommand, realClipboardEnv())
 	copyErrs := make(chan string, 4)
@@ -315,7 +357,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 		if len(via) == 0 {
 			msg = "nothing to copy with: set clipboard_osc52 = true or copy_command"
 		}
-		m.setStatus(msg, 4*time.Second)
+		m.setBarMessage(msg, 4*time.Second)
 	}
 	if len(script.apps) > 0 {
 		m.launchApps(script.apps, script.name)
@@ -333,7 +375,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	handle := func(ev uv.Event) {
 		if e := m.handleEvent(ev, scr); e != nil {
 			logger.Warn("event", "err", e, "event", fmt.Sprintf("%T", ev))
-			m.setStatus(e.Error(), 10*time.Second)
+			m.setBarMessage(e.Error(), 10*time.Second)
 			m.logEvent(nil, evError, e.Error())
 		}
 	}
@@ -350,7 +392,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 			m.escExpired()
 		case msg := <-copyErrs:
 			logger.Warn("clipboard", "err", msg, "command", strings.Join(copyCmd, " "))
-			m.setStatus(msg, 8*time.Second)
+			m.setBarMessage(msg, 8*time.Second)
 			m.logEvent(nil, evError, "clipboard: "+msg)
 		case now := <-titles.C:
 			m.tick(now)
@@ -412,6 +454,11 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 func (m *WM) handleEvent(ev uv.Event, scr *hostScreen) error {
 	switch ev := ev.(type) {
 	case uv.WindowSizeEvent:
+		if ev.Width != m.cols || ev.Height != m.rows {
+			// A new font size changes the cell's pixels too: ask again
+			// (CellSizeEvent), for programs that draw in pixels.
+			scr.askCellSize()
+		}
 		scr.resize(ev.Width, ev.Height)
 		m.resizeScreen(ev.Width, ev.Height)
 	case uv.KeyPressEvent:
@@ -473,13 +520,13 @@ func (m *WM) setHostColors(fg, bg color.Color) {
 
 func (m *WM) applyHostColors(w *Window) {
 	switch {
-	case w.fgColor != nil: // chosen with Alt+b
+	case w.fgColor != nil: // its palette (Alt+t)
 		w.emu.SetDefaultForegroundColor(w.fgColor)
 	case m.hostFg != nil:
 		w.emu.SetDefaultForegroundColor(m.hostFg)
 	}
 	switch {
-	case w.bgColor != nil: // chosen with Alt+b
+	case w.bgColor != nil: // its palette (Alt+t)
 		w.emu.SetDefaultBackgroundColor(w.bgColor)
 	case m.hostBg != nil:
 		w.emu.SetDefaultBackgroundColor(m.hostBg)
@@ -497,7 +544,7 @@ func (m *WM) render(scr *hostScreen) error {
 	if x, y, ok := m.cursorFor(); ok {
 		w := m.focused
 		cur = cursorState{visible: true, x: x, y: y, shape: w.cursorShape, blink: w.cursorBlink,
-			color: w.fgColor} // the window's Alt+b text color, if any
+			color: w.fgColor} // the window's palette text color, if any
 	}
 	m.dirty = false
 	if m.repaintHost {

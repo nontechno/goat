@@ -88,7 +88,7 @@ func (m *WM) openSettings() {
 		path = localConfigPath()
 	}
 	if path == "" {
-		m.setStatus("no config folder: settings can't be saved", 5*time.Second)
+		m.setBarMessage("no config folder: settings can't be saved", 5*time.Second)
 		return
 	}
 	lc, _ := readLocalConfig(path)
@@ -303,7 +303,7 @@ func (m *WM) saveSettings() {
 	logger.Info("settings saved", "file", d.path)
 	m.applyLocalSettings(d.path)
 	m.closeSettings()
-	m.setStatus("settings saved to "+homeShort(d.path, m.home), 4*time.Second)
+	m.setBarMessage("settings saved to "+homeShort(d.path, m.home), 4*time.Second)
 }
 
 // applyLocalSettings puts local.toml's settings into effect now.

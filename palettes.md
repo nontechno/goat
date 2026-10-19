@@ -98,7 +98,7 @@ same place, so it stands out from that window. With
 
 | Window | Where its palette is kept |
 |---|---|
-| the background window (Alt+0) | `local.toml`, `[background_window]` (as its colors, with the palette's name in a comment) |
+| the background window (Alt+0) | `local.toml`, `[background_window]` (`palette` = its id, plus `bg` / `fg`, its colors, for when the palettes file lacks it) |
 | help, status, inventory, events | `system.toml`, `theme = <id>` in its section |
 | other windows | nowhere: they end with their programs |
 
@@ -110,7 +110,7 @@ the next one of a theme (see [scripting.md](scripting.md)).
 
 ## goat's own windows: system.toml
 
-The help (F1), status (F2), inventory (F3) and events (Alt+-) windows can
+The help (Alt+F1), status (Alt+F2), inventory (Alt+F3) and events (Alt+-) windows can
 be set up in `~/.config/goat/system.toml`, one section each:
 
 ```toml
@@ -118,19 +118,19 @@ be set up in `~/.config/goat/system.toml`, one section each:
 
 [help]
 title = "❓Help"       # the title in its frame and its status bar tab
-activate = "f1"       # the key that shows and hides it
+activate = "alt+f1"   # the key that shows and hides it
 theme = 28649         # its palette: the palette's id
 size = [40, 100%]     # width, height
 position = [-40, 0]   # left, top
 
 [status]
 title = "Status"
-activate = "f2"
+activate = "alt+f2"
 size = [40, 100%]
 position = [-80, 0]
 
 [inventory]
-activate = "f3"
+activate = "alt+f3"
 size = [60%, 60%]
 position = [-100, 0]
 
@@ -144,8 +144,10 @@ position = [30, 0]
 Every key is optional; a window without a section opens as it always did.
 
 - **`title`**: shown in the window's frame and in its status bar tab.
-- **`activate`**: `"f1"` to `"f12"`, or Alt and a character: `"alt+h"`,
-  `"alt-"` (Alt+-). It replaces the window's usual F-key. The events
+- **`activate`**: `"f1"` to `"f12"`, `"alt+f1"` to `"alt+f12"`, or Alt and
+  a character: `"alt+h"`, `"alt-"` (Alt+-). It replaces the window's usual
+  key (Alt+F1, Alt+F2, Alt+F3). F-keys alone are best left to programs:
+  mc, for one, uses F1 to F10. The events
   window also keeps Alt+- (`show_events` in config.toml). A key that is
   also one of goat's other shortcuts now shows this window instead.
 - **`theme`**: a palette id (the `id` in the palettes file; the palette

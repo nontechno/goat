@@ -17,7 +17,7 @@ func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 	m := s.m
 	m.syncEvents()                // the events window's contents (events.go)
 	m.syncHelp()                  // the help window's, laid out for its width (help.go)
-	m.syncInfo(time.Now())        // the status window's (info.go)
+	m.syncStatusWin(time.Now())   // the status window's (statuswin.go)
 	m.syncInventory(time.Now())   // the inventory's (inventory.go)
 	for _, w := range m.windows { // bottom to top: later windows cover earlier
 		if w.minimized { // hidden with Alt+0
@@ -132,7 +132,7 @@ func (m *WM) titleLabel(w *Window) string {
 //	│ content │
 //	└─────────┘
 //
-// The frame takes the window's Alt+b background; otherwise, for compact and
+// The frame takes the background of the window's palette (Alt+t); otherwise, for compact and
 // none, theme.compact_title_bg.
 func (m *WM) drawFrame(scr uv.Screen, w *Window) {
 	st := uv.Style{Fg: m.borderColor(w)}
@@ -230,7 +230,7 @@ func (m *WM) drawContent(scr uv.Screen, w *Window) {
 	if hasSel {
 		selA, selB = m.sel.bounds()
 	}
-	// Cells without their own colors get the window's (Alt+b).
+	// Cells without their own colors get the window's (its palette, Alt+t).
 	blank := uv.EmptyCell
 	blank.Style.Bg = w.bgColor
 
@@ -416,10 +416,10 @@ func (m *WM) drawStatus(scr uv.Screen) {
 	end := clockX
 	room := clockX - x - 1 // one blank after the tabs
 	var msgCells []uv.Cell
-	if m.status != "" && room > 1 {
+	if m.barMsg != "" && room > 1 {
 		st := base
 		st.Fg = m.cfg.Theme.HintText.C
-		msgCells = textCells(fitStart(m.status, room), st, room)
+		msgCells = textCells(fitStart(m.barMsg, room), st, room)
 		room -= cellsWidth(msgCells) + 1
 	}
 	if m.cfg.StatusShowDir && m.focused != nil && m.focused.dir != "" && room > 2 {
@@ -436,7 +436,7 @@ func (m *WM) drawStatus(scr uv.Screen) {
 
 // fitStart shortens s to at most w columns by cutting its end ("abc…").
 func fitStart(s string, w int) string {
-	if uniseg.StringWidth(s) <= w {
+	if textWidth(s) <= w { // (as drawn)
 		return s
 	}
 	if w < 2 {
@@ -451,7 +451,7 @@ func fitStart(s string, w int) string {
 
 // fitEnd shortens s to at most w columns by cutting its start ("…xyz").
 func fitEnd(s string, w int) string {
-	if uniseg.StringWidth(s) <= w {
+	if textWidth(s) <= w { // (as drawn)
 		return s
 	}
 	if w < 2 {

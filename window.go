@@ -20,7 +20,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
-	"golang.org/x/sys/unix"
 )
 
 // Window is one floating terminal window.
@@ -72,10 +71,10 @@ type Window struct {
 	git gitInfo
 	// Hidden with Alt+0 (minimize.go): not drawn, not clickable.
 	minimized bool
-	// Program status (OSC 7501, status.go): the window's records, and where
+	// Program status (OSC 7501, appstatus.go): the window's records, and where
 	// status reports, prompt marks (OSC 133) and full resets go.
-	status   statusStore
-	onStatus func(data []byte)
+	appStatus statusStore
+	onStatus  func(data []byte)
 	// Color scheme reports (mode 2031, termreplies.go): set by the
 	// program; what it was last told (0: nothing, 1 + tone); how to find
 	// out whether the window is dark or light (set by the WM).
@@ -257,21 +256,58 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	return win, nil
 }
 
-// childEnv is the environment for shells: the vt emulator is xterm-like;
+// childEnv is the environment for shells: the vt emulator is xterm-like
+// (TERM=xterm-256color), the terminal is goat (TERM_PROGRAM), and
 // COLORTERM=truecolor only when goat passes 24-bit colors on (truecolor.go).
+// The outer terminal's own variables are left out (hostTerminalVar).
 func childEnv(trueColor bool) []string {
-	env := make([]string, 0, len(os.Environ())+2)
+	env := make([]string, 0, len(os.Environ())+4)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "TERM=") || strings.HasPrefix(kv, "COLORTERM=") {
+		name, _, _ := strings.Cut(kv, "=")
+		if hostTerminalVar(name) {
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "TERM=xterm-256color")
+	env = append(env, "TERM=xterm-256color", "TERM_PROGRAM=goat", "TERM_PROGRAM_VERSION="+version)
 	if trueColor {
 		env = append(env, "COLORTERM=truecolor")
 	}
 	return env
+}
+
+// hostTerminalVars are variables the terminal goat runs in sets for its own
+// programs. A program in a goat window would take them to mean it runs in
+// that terminal (iTerm2, kitty, WezTerm, tmux, …) and use its features
+// (images, its own escape sequences, tmux's pass-through), which goat
+// doesn't have; so they aren't passed on.
+var hostTerminalVars = map[string]bool{
+	"TERM": true, "COLORTERM": true, "TERM_PROGRAM": true, "TERM_PROGRAM_VERSION": true,
+	"TERM_SESSION_ID": true, "TERMINAL_EMULATOR": true, "COLORFGBG": true,
+	"LC_TERMINAL": true, "LC_TERMINAL_VERSION": true,
+	"TMUX": true, "TMUX_PANE": true, "STY": true, "WINDOW": true,
+	"VTE_VERSION": true, "XTERM_VERSION": true, "XTERM_SHELL": true, "XTERM_LOCALE": true,
+	"WT_SESSION": true, "WT_PROFILE_ID": true,
+	"TILIX_ID": true, "TERMINATOR_UUID": true, "KONSOLE_VERSION": true,
+}
+
+// hostTerminalPrefixes are the starts of other terminals' variables
+// (KITTY_WINDOW_ID, ITERM_SESSION_ID, WEZTERM_PANE, …).
+var hostTerminalPrefixes = []string{"KITTY_", "ITERM_", "WEZTERM_", "ALACRITTY_",
+	"GHOSTTY_", "KONSOLE_DBUS_", "TERMINOLOGY", "SHELL_SESSION_ID"}
+
+// hostTerminalVar reports whether name is one of the outer terminal's
+// variables (not passed to goat's windows).
+func hostTerminalVar(name string) bool {
+	if hostTerminalVars[name] {
+		return true
+	}
+	for _, p := range hostTerminalPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *Window) setMode(m ansi.Mode, on bool) {
@@ -285,6 +321,11 @@ func (w *Window) setMode(m ansi.Mode, on bool) {
 	case ansi.ModeMouseX10, ansi.ModeMouseNormal, ansi.ModeMouseHighlight,
 		ansi.ModeMouseButtonEvent, ansi.ModeMouseAnyEvent:
 		w.mouseModes[d] = on
+	case ansi.ModeAltScreen, ansi.ModeAltScreenSaveCursor:
+		// The alternate screen starts, and ends, with no kitty keyboard
+		// flags of its own (as in kitty): a program that crashed, or quit
+		// without popping its flags, leaves none for the next one.
+		w.kbd.stacks[1] = nil
 	case modeColorScheme: // 2031: dark / light reports (termreplies.go)
 		w.schemeReports, w.schemeSent = on, 0
 		if on {
@@ -460,7 +501,7 @@ func (w *Window) close() {
 	w.in.Close()
 	_ = w.ptmx.Close()
 	if p := w.cmd.Process; p != nil && !w.exited.Load() {
-		_ = syscall.Kill(-p.Pid, syscall.SIGHUP) // whole process group
+		hangUpGroup(p.Pid) // the whole process group
 		_ = p.Signal(syscall.SIGHUP)
 		time.AfterFunc(3*time.Second, func() { _ = p.Kill() })
 	}
@@ -519,21 +560,21 @@ func usableDir(d string) bool {
 		return false
 	}
 	fi, err := os.Stat(d)
-	return err == nil && fi.IsDir() && syscall.Access(d, 1 /* X_OK */) == nil
+	return err == nil && fi.IsDir() && canEnter(d)
 }
 
 // displayTitle is the name shown in the title bar.
 func (w *Window) displayTitle(source string) string {
-	if w.title != "" {
-		return w.title
+	t := w.shellName
+	switch {
+	case w.title != "":
+		t = w.title
+	case source == "terminal" && w.oscTitle != "":
+		t = w.oscTitle
+	case w.procName != "":
+		t = w.procName
 	}
-	if source == "terminal" && w.oscTitle != "" {
-		return w.oscTitle
-	}
-	if w.procName != "" {
-		return w.procName
-	}
-	return w.shellName
+	return printable(t) // a program's title or name is drawn by goat
 }
 
 // cellAt returns the cell to show at content position (x, y), taking the
@@ -670,44 +711,6 @@ func (q *inputQueue) drainTo(dst io.Writer) {
 			return
 		}
 	}
-}
-
-// pollable returns the PTY master as a non-blocking file managed by Go's
-// poller. creack/pty hands it over in blocking mode (its ioctls call Fd(),
-// which switches a file to blocking), and then Close can't interrupt the
-// reader's pending Read: a closed window's reader goroutine and PTY would
-// live on for as long as anything (a job that ignores SIGHUP) keeps the
-// terminal open. Afterwards, Fd() must not be called on it again; ioctls go
-// through ptyControl.
-func pollable(f *os.File) *os.File {
-	fd, err := syscall.Dup(int(f.Fd()))
-	if err != nil {
-		return f
-	}
-	if err := syscall.SetNonblock(fd, true); err != nil {
-		_ = syscall.Close(fd)
-		return f
-	}
-	nf := os.NewFile(uintptr(fd), f.Name())
-	_ = f.Close()
-	return nf
-}
-
-// ptyControl runs fn with the PTY's descriptor without making it blocking.
-func ptyControl(f *os.File, fn func(fd int)) {
-	if f == nil {
-		return
-	}
-	if sc, err := f.SyscallConn(); err == nil {
-		_ = sc.Control(func(fd uintptr) { fn(int(fd)) })
-	}
-}
-
-// setWinsize tells the program in the PTY its window size (TIOCSWINSZ).
-func setWinsize(f *os.File, cols, rows int) {
-	ptyControl(f, func(fd int) {
-		_ = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
-	})
 }
 
 // installHooks registers what goat does with a program's sequences on the

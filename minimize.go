@@ -42,14 +42,14 @@ func (m *WM) toggleHidden() {
 		for _, w := range hidden {
 			w.minimized = false
 		}
-		m.setStatus(fmt.Sprintf("%s %s back", plural(len(hidden), "window"), pick(len(hidden) == 1, "is", "are")), statusShort)
+		m.setBarMessage(fmt.Sprintf("%s %s back", plural(len(hidden), "window"), pick(len(hidden) == 1, "is", "are")), statusShort)
 	case len(shown) > 0:
 		for _, w := range shown {
 			m.hide(w)
 		}
-		m.setStatus(fmt.Sprintf("%s hidden: Alt+0 brings them back, Alt+N or a click on its tab one", plural(len(shown), "window")), statusShort)
+		m.setBarMessage(fmt.Sprintf("%s hidden: Alt+0 brings them back, Alt+N or a click on its tab one", plural(len(shown), "window")), statusShort)
 	default:
-		m.setStatus("no windows to hide", statusShort)
+		m.setBarMessage("no windows to hide", statusShort)
 	}
 	m.dirty = true
 }

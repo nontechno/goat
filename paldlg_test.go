@@ -86,8 +86,8 @@ func TestPaletteDialogChooseAndKeep(t *testing.T) {
 	if data, _ := os.ReadFile(m.localPath); !strings.Contains(string(data), `palette_lingo = "Funny"`) {
 		t.Errorf("lingo not saved:\n%s", data)
 	}
-	if !strings.Contains(m.status, m.combos.all[m.combos.byTheme[1][13]].names[1]) {
-		t.Errorf("status %q", m.status)
+	if !strings.Contains(m.barMsg, m.combos.all[m.combos.byTheme[1][13]].names[1]) {
+		t.Errorf("status %q", m.barMsg)
 	}
 
 	// Esc puts the colors back.
@@ -148,8 +148,8 @@ func TestPaletteDialogMouseAndKeys(t *testing.T) {
 func TestPaletteDialogWithoutPalettes(t *testing.T) {
 	m, _, _, _ := wmWithBackground(t)
 	key(m, uv.Key{Code: 't', Mod: uv.ModAlt})
-	if m.palDlg != nil || !strings.Contains(m.status, "goat -install") {
-		t.Fatalf("no palettes: open %v, status %q", m.palDlg != nil, m.status)
+	if m.palDlg != nil || !strings.Contains(m.barMsg, "goat -install") {
+		t.Fatalf("no palettes: open %v, status %q", m.palDlg != nil, m.barMsg)
 	}
 	// Alt+b and Alt+f are no longer goat's.
 	if DefaultConfig().bindings['b'] != actNone || DefaultConfig().bindings['f'] != actNone {

@@ -72,8 +72,8 @@ func TestSwapRefused(t *testing.T) {
 	m, bg, _, _ := wmWithBackground(t)
 	m.focus(bg)
 	_ = m.handleKey(uv.Key{Code: 's', Text: "s", Mod: uv.ModAlt})
-	if m.bg != bg || !bg.background || !strings.Contains(m.status, "focus one first") {
-		t.Fatalf("swap from the background: status %q", m.status)
+	if m.bg != bg || !bg.background || !strings.Contains(m.barMsg, "focus one first") {
+		t.Fatalf("swap from the background: status %q", m.barMsg)
 	}
 	m.toggleEvents() // the events window can't be swapped either
 	if ew := m.ev.win; ew != nil && m.focused == ew {

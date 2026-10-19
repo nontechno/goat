@@ -89,9 +89,15 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   which from `COLORTERM`, `TERM` and terminfo, and recognizes iTerm2 even
   over ssh (`LC_TERMINAL`, which ssh passes on where it drops `COLORTERM`),
   as well as WezTerm, ghostty and VS Code. `true_color = "on"` in config.toml
-  forces it on; F2 (status) shows what goat decided and why. Programs in
+  forces it on; Alt+F2 (status) shows what goat decided and why. Programs in
   windows get `COLORTERM=truecolor` only when it is on, so they pick the
   same colors as they would outside goat
+- Programs in windows are told they run in goat (`TERM=xterm-256color`,
+  `TERM_PROGRAM=goat`); the outer terminal's own variables
+  (`TERM_PROGRAM=iTerm.app`, `LC_TERMINAL`, `KITTY_WINDOW_ID`,
+  `WT_SESSION`, `TMUX`, …) aren't passed on, so programs don't use
+  features of that terminal goat doesn't have (inline images, tmux
+  pass-through)
 - Full rendering: 256-color and true color, bold/italic/underline/reverse,
   wide (CJK/emoji) characters
 - What programs print stays inside their windows, whatever it is:
@@ -154,31 +160,33 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   (`ESC c`) clears them all. Programs asking whether the protocol is
   supported (`ESC ] 7501 ; ? ST`) get `ESC ] 7501 ; ? ST`. Nothing else is
   shown for them yet; what goat does with each kind of report is in the
-  (empty) `onStatus*` functions in `status.go`
-- Help window (F1): every keyboard shortcut and mouse action, with the keys
+  (empty) `onStatus*` functions in `appstatus.go`
+- Help window (Alt+F1): every keyboard shortcut and mouse action, with the keys
   as `config.toml` binds them. A regular window without a program, like the
   events window: move it, resize it (the text is laid out again for the new
   width), scroll it, copy from it, and keep working in other windows
-  meanwhile. F1 again hides it, whether or not it has the focus (Alt+x too)
+  meanwhile. Alt+F1 again hides it, whether or not it has the focus (Alt+x too)
 - Shortcuts can be changed in the help window: ↑ ↓ choose one, Enter, then
   press the new key (Alt+key or the key alone; Esc keeps the old one). A key
   another shortcut has is a collision: goat says which, and Enter swaps the
   two (Esc changes nothing); Delete puts a shortcut back to its built-in key.
   Changes apply at once and are kept in `~/.config/goat/keymap.toml`, read
   at start over config.toml's `[keys]`
-- Status window (F2): goat itself. Version and build, since when and where
+- Status window (Alt+F2): goat itself. Version and build, since when and where
   it runs, its files (config, local, aliases, log); and, refreshed every
   second, the windows (floating, hidden, pinned, goat's own), the processes
   in them with their memory and CPU, goat's own memory, CPU and goroutines,
-  history kept, events, and what programs report (OSC 7501). F2 again
-  hides it
-- Inventory window (F3): every window: its processes (everything under its
+  history kept, events, and what programs report (OSC 7501). Alt+F2
+  again hides it
+- Inventory window (Alt+F3): every window: its processes (everything under its
   shell, with memory and CPU), directory, user@host and git, size, history,
   hidden/pinned/ended, and its program's status reports (OSC 7501).
   Refreshed every second. ↑ ↓ (or a click) choose a window, Enter (or a
-  double click) goes to it, bringing it back if Alt+0 hid it. F3 again
-  hides it. Process figures come from `/proc` on Linux and `ps` on macOS,
-  sampled every 2 s, only while the status or inventory window is open
+  double click) goes to it, bringing it back if Alt+0 hid it. Alt+F3
+  again hides it. Process figures come from `/proc` on Linux and `ps` on macOS,
+  sampled every 2 s, only while the status or inventory window is open.
+  While text is selected in either, it isn't refreshed, so the selection
+  stays to be copied; a click elsewhere ends it
 - In both, CPU, memory and a program's reported progress are drawn as
   bars beside their numbers (`████▋      43%`): CPU as a share of all the
   machine's CPUs, memory of all its memory. The bars fill in eighths of a
@@ -244,15 +252,25 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Swap with the background  | `Alt+s`                         |
 | Repaint the screen        | `Alt+r`                         |
 | Settings (`local.toml`)   | `Alt+o`                         |
-| Help: all keys and mouse actions | `F1` (again: hide)       |
-| goat's status: version, memory, CPU | `F2` (again: hide)    |
-| Inventory: every window; Enter goes to it | `F3` (again: hide) |
+| Help: all keys and mouse actions | `Alt+F1` (again: hide)   |
+| goat's status: version, memory, CPU | `Alt+F2` (again: hide) |
+| Inventory: every window; Enter goes to it | `Alt+F3` (again: hide) |
 | Close window              | `Alt+x`                         |
 | Quit goat (asks first if windows are open) | `Alt+q`          |
 
 If Alt doesn't reach your terminal, press `Esc` then the letter within
 `alt_timeout_ms` (200 ms by default). Esc followed by anything that isn't a
 shortcut, such as an arrow key in vim, goes straight to the program.
+
+**Shortcuts take keys from programs.** A key goat uses never reaches the
+program in the window, and several of goat's Alt keys mean something in
+shells and editors: Alt+c capitalizes a word and Alt+t swaps two words
+(bash, zsh, emacs), Alt+p / Alt+n search the history and Alt+q puts the
+line aside (zsh), Alt+h runs help (zsh). If you use one of those, give the
+goat shortcut another key: in the help window (Alt+F1) choose it, press
+Enter, then the new key (kept in `~/.config/goat/keymap.toml`). The
+function keys F1 to F12 alone are always the program's (mc uses F1 to
+F10); goat's own windows are Alt+F1, Alt+F2, Alt+F3.
 
 **macOS:** Terminal and iTerm2 make Option type characters (Option+c = `ç`)
 unless *Use Option as Meta key* is on (Terminal: Settings → Profiles →
@@ -349,7 +367,8 @@ value; an empty value means the default), and on Save writes them back and
 applies them at once; Discard (or Esc) leaves everything as it was. Saving
 changes only these keys: comments, other keys and goat's sections stay.
 
-goat also keeps the background window's colors (`[background_window]`) and
+goat also keeps the background window's palette (`[background_window]`:
+its id, and its colors for when the palettes file lacks it) and
 what `goat -learn` found out about the terminal (`[terminal."NAME"]`) there.
 
 Mistakes in the config never stop goat: unknown keys and invalid values are
@@ -414,8 +433,9 @@ Fixed along the way:
   answered by a full emulator, so no stray replies end up in the shell
 - Esc followed by a non-shortcut key is no longer swallowed; Esc then an arrow
   no longer moves the window
-- Every key is sent: Home/End/PageUp/PageDown/Insert/Delete, F4–F12 (F1–F3
-  open goat's help, status and inventory windows),
+- Every key is sent: Home/End/PageUp/PageDown/Insert/Delete, F1–F12 (goat's
+  help, status and inventory windows are Alt+F1–F3, so mc and others keep
+  F1–F3; `system.toml` can change them),
   modifier combinations, and application cursor mode for vim/less/zsh
 - Resizing from the left edge resizes the program's terminal too
 - Shrinking the terminal redraws cleanly and keeps every window reachable

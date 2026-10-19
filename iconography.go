@@ -112,7 +112,7 @@ const (
 
 // Window tabs: " 2:vim* " for a pinned window (Alt+w), " 👻3:htop " for one
 // hidden with Alt+0 (minimize.go). The ghost also marks a hidden window in
-// the inventory window (F3; inventory.go inventoryFlags).
+// the inventory window (Alt+F3; inventory.go inventoryFlags).
 const (
 	pinnedSymbol = "*"
 	ghost        = "👻"
@@ -125,16 +125,16 @@ const unseenEventsSymbol = "!"
 // ---- meters (meter.go meterBar) ---------------------------------------------
 //
 // A value as a bar, in eighths of a cell, on a track a shade off the
-// window's background, in the status (F2) and inventory (F3) windows:
+// window's background, in the status (Alt+F2) and inventory (Alt+F3) windows:
 // ██████▍░░░░ 26%.
 var barEighths = [8]rune{'▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'} // 1/8 … 8/8 of a cell
 
 // ---- text ------------------------------------------------------------------
 
 // ellipsis marks text cut to fit: "abc…" (render.go fitStart; also every
-// line of the status and inventory windows, info.go, inventory.go), "…/src/goat"
+// line of the status and inventory windows, statuswin.go, inventory.go), "…/src/goat"
 // (fitEnd: the status bar directory), a long notification or ignored status
-// report in the events window (events.go cleanEventText, status.go
+// report in the events window (events.go cleanEventText, appstatus.go
 // statusRaw).
 const ellipsis = "…"
 

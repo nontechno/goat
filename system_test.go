@@ -61,12 +61,13 @@ func TestParsePanelKey(t *testing.T) {
 	for in, want := range map[string]panelKeySpec{
 		"f1": {code: uv.KeyF1}, "F12": {code: uv.KeyF12}, "alt-": {code: '-', alt: true},
 		"alt+h": {code: 'h', alt: true}, "Alt+H": {code: 'H', alt: true}, "alt+-": {code: '-', alt: true},
+		"alt+f1": {code: uv.KeyF1, alt: true}, "Alt-F12": {code: uv.KeyF12, alt: true}, "alt+f": {code: 'f', alt: true},
 	} {
 		if got, err := parsePanelKey(in); err != nil || got != want {
 			t.Errorf("%q: %+v %v", in, got, err)
 		}
 	}
-	for _, bad := range []string{"f13", "ctrl+x", "alt+1", "alt", ""} {
+	for _, bad := range []string{"f13", "alt+f13", "alt+f0", "ctrl+x", "alt+1", "alt", ""} {
 		if _, err := parsePanelKey(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
@@ -133,12 +134,12 @@ func TestSystemPanels(t *testing.T) {
 	}
 	// F2 is free; F4 is the status window's.
 	key(m, uv.Key{Code: uv.KeyF2})
-	if m.infoShown() {
+	if m.statusWinShown() {
 		t.Error("F2 still shows the status window")
 	}
 	key(m, uv.Key{Code: uv.KeyF4})
-	if !m.infoShown() || m.tabName(m.info.win) != "Status" || m.info.win.x != 120 {
-		t.Errorf("F4: shown %v, %q, x %d", m.infoShown(), m.tabName(m.info.win), m.info.win.x)
+	if !m.statusWinShown() || m.tabName(m.statWin.win) != "Status" || m.statWin.win.x != 120 {
+		t.Errorf("F4: shown %v, %q, x %d", m.statusWinShown(), m.tabName(m.statWin.win), m.statWin.win.x)
 	}
 	// inventory: 60% x 60%, 100 from the right.
 	key(m, uv.Key{Code: uv.KeyF3})
@@ -241,5 +242,24 @@ func TestSystemReload(t *testing.T) {
 	m.refreshSystem(time.Now().Add(3 * systemRecheckEvery))
 	if len(m.ev.list) != n+1 || m.tabName(m.help.win) != "two" {
 		t.Errorf("broken file: %d new events, title %q", len(m.ev.list)-n, m.tabName(m.help.win))
+	}
+}
+
+// An activate key that is also a shortcut, or another window's key, is
+// warned about when system.toml is read.
+func TestSystemKeyCollisions(t *testing.T) {
+	m := systemWM(t, "[help]\nactivate = \"alt+h\"\n[status]\nactivate = \"alt+f3\"\n[events]\nactivate = \"alt-\"\n")
+	var texts []string
+	for _, e := range m.ev.list {
+		texts = append(texts, e.text)
+	}
+	all := strings.Join(texts, "\n")
+	for _, want := range []string{"[help] activate: Alt+h is also move left", "[inventory] activate: Alt+F3 is the status window's already"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no warning %q:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, "[events]") {
+		t.Errorf("the events window's own Alt+- warned about:\n%s", all)
 	}
 }

@@ -119,10 +119,10 @@ func TestInventoryToggleAndChoose(t *testing.T) {
 		procSample{pid: 201, ppid: 200, rss: 40 << 20, cpu: 12, comm: "vim"},
 		procSample{pid: 202, ppid: 201, rss: 1 << 20, comm: "gopls"},
 	)
-	a.status.apply(statusReport{state: stWorking, progress: 40, app: "claude", title: "Running tests"})
+	a.appStatus.apply(statusReport{state: stWorking, progress: 40, app: "claude", title: "Running tests"})
 	a.dir = "/tmp/project"
 	m.focus(a)
-	key(m, uv.Key{Code: uv.KeyF3})
+	key(m, uv.Key{Code: uv.KeyF3, Mod: uv.ModAlt})
 	inv := m.inv.win
 	if !m.inventoryShown() || m.focused != inv || m.inv.chosen != a {
 		t.Fatalf("F3: shown %v, focused %v, chosen %v", m.inventoryShown(), m.focused == inv, m.inv.chosen)
@@ -151,7 +151,7 @@ func TestInventoryToggleAndChoose(t *testing.T) {
 		t.Fatalf("Enter: focused %v", m.focused.id)
 	}
 	// F3 while another window is focused hides it.
-	key(m, uv.Key{Code: uv.KeyF3})
+	key(m, uv.Key{Code: uv.KeyF3, Mod: uv.ModAlt})
 	if m.inventoryShown() || m.focused != b {
 		t.Fatal("F3 again didn't hide the inventory")
 	}
@@ -162,7 +162,7 @@ func TestInventoryToggleAndChoose(t *testing.T) {
 	if !a.minimized {
 		t.Fatal("not hidden")
 	}
-	key(m, uv.Key{Code: uv.KeyF3})
+	key(m, uv.Key{Code: uv.KeyF3, Mod: uv.ModAlt})
 	if m.inv.chosen != bg || inv.minimized {
 		t.Fatalf("chosen %v, inventory hidden %v", m.inv.chosen.id, inv.minimized)
 	}
@@ -221,8 +221,44 @@ func TestInventoryRefresh(t *testing.T) {
 	c := fakeWindow(3, 30, 5, 30, 8, true, false)
 	c.shellName = "newcomer"
 	m.windows = append(m.windows, c)
-	m.tick(time.Now().Add(2 * infoEvery))
+	m.tick(time.Now().Add(2 * panelEvery))
 	if text := panelScreen(m, m.inv.win); !strings.Contains(text, "3:") || !strings.Contains(text, "3 floating") {
 		t.Errorf("new window not listed:\n%s", text)
+	}
+}
+
+// Text a program supplies (its title, process names, its directory) can't
+// put control characters into goat's windows.
+func TestPanelTextFromPrograms(t *testing.T) {
+	m, bg, a, _ := wmWithBackground(t)
+	m.cols, m.rows = 100, 40
+	withPid(bg, 100)
+	fakeProcs(m, procSample{pid: 100, ppid: 1, comm: "z\x1b[31msh\a"})
+	a.title = "evil\x1b]0;x\a\x08\x7f\u009b2J title\ttab"
+	a.dir = "/tmp/\x1b[2Jdir"
+	lines, _ := m.inventoryLines(80)
+	text := strings.Join(lines, "\n")
+	for _, l := range lines {
+		plain := l // goat's own SGR sequences aside
+		for len(plain) > 0 {
+			i := strings.Index(plain, "\x1b[")
+			if i < 0 {
+				break
+			}
+			j := strings.IndexByte(plain[i:], 'm')
+			if j < 0 || strings.ContainsAny(plain[i+2:i+j], "J]") {
+				t.Fatalf("a program's escape sequence in %q", l)
+			}
+			plain = plain[:i] + plain[i+j+1:]
+		}
+		if strings.ContainsFunc(plain, func(r rune) bool { return r < 0x20 && r != 0 || r == 0x7f || r == 0x9b }) {
+			t.Errorf("control character in %q", l)
+		}
+	}
+	if !strings.Contains(text, "evil]0;x2J title tab") || !strings.Contains(text, "z[31msh") {
+		t.Errorf("the printable rest is gone:\n%s", text)
+	}
+	if got := a.displayTitle("process"); got != "evil]0;x2J title tab" {
+		t.Errorf("title bar: %q", got)
 	}
 }

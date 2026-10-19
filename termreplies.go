@@ -9,7 +9,7 @@ import (
 
 // Replies to what programs ask the terminal, besides those the emulator
 // answers itself (device attributes, cursor position, modes, colors) and
-// OSC 7501 (status.go). Every reply goes through the emulator's reply
+// OSC 7501 (appstatus.go). Every reply goes through the emulator's reply
 // stream as the question is read, so replies reach the program in the
 // order it asked (claude-server.md, section 3).
 //
@@ -64,6 +64,21 @@ func (w *Window) installReplies(cell func() (width, height int)) {
 			return false // the emulator's own (cursor position, …)
 		}
 		w.reportScheme(true)
+		return true
+	})
+	// DECRQM for 2031: goat has the mode (1 set, 2 reset). The emulator
+	// itself knows only modes it has seen set, and answers 0 ("not
+	// recognized") before that: programs that ask first would think goat
+	// has no color scheme reports.
+	w.emu.RegisterCsiHandler(ansi.Command('?', '$', 'p'), func(params ansi.Params) bool {
+		if n, _, _ := params.Param(0, 0); n != int(modeColorScheme) {
+			return false
+		}
+		state := 2
+		if w.schemeReports {
+			state = 1
+		}
+		reply(fmt.Sprintf("\x1b[?%d;%d$y", int(modeColorScheme), state))
 		return true
 	})
 }

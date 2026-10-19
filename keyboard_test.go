@@ -2,7 +2,6 @@ package main
 
 import (
 	"testing"
-	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 )
@@ -88,11 +87,11 @@ func TestKeyboardModes(t *testing.T) {
 		t.Fatalf("before: %q", got)
 	}
 	_ = w.feed([]byte("\x1b[?u"))
-	if got := replies(200 * time.Millisecond); got != "\x1b[?0u" {
+	if got := replies(); got != "\x1b[?0u" {
 		t.Fatalf("query: %q", got)
 	}
 	_ = w.feed([]byte("\x1b[<u\x1b[>5u\x1b[>4;2m\x1b[?u\x1b[?4m"))
-	if got := replies(200 * time.Millisecond); got != "\x1b[?5u\x1b[>4;2m" {
+	if got := replies(); got != "\x1b[?5u\x1b[>4;2m" {
 		t.Fatalf("after push: %q", got)
 	}
 	if got := string(w.encodeKey(shiftEnter)); got != "\x1b[13;2u" {
@@ -102,6 +101,18 @@ func TestKeyboardModes(t *testing.T) {
 	_ = w.feed([]byte("\x1b[?1049h"))
 	if got := string(w.encodeKey(shiftEnter)); got != "\x1b[27;2;13~" {
 		t.Fatalf("alternate screen (modifyOtherKeys only): %q", got)
+	}
+	_ = w.feed([]byte("\x1b[>1u")) // a program on it pushes, and quits without popping
+	if w.kittyFlags() != 1 {
+		t.Fatalf("alternate push: %d", w.kittyFlags())
+	}
+	_ = w.feed([]byte("\x1b[?1049l"))
+	if w.kittyFlags() != 5 {
+		t.Fatalf("main screen's flags changed: %d", w.kittyFlags())
+	}
+	_ = w.feed([]byte("\x1b[?1049h")) // the next program finds no flags
+	if w.kittyFlags() != 0 {
+		t.Fatalf("left over on the alternate screen: %d", w.kittyFlags())
 	}
 	_ = w.feed([]byte("\x1b[?1049l"))
 	// =flags;mode: or, and-not, set.

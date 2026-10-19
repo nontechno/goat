@@ -23,7 +23,7 @@ import (
 // ("bell ×5").
 //
 // It is a regular floating window (move, resize, focus, pin, scroll back,
-// select and copy, Alt+b colors), with no program behind it: only Alt+-
+// select and copy, a palette with Alt+t), with no program behind it: only Alt+-
 // hides it, and shows it again where it was. While it has the focus, keys
 // other than shortcuts scroll it (arrows, PageUp/PageDown, Home/End) and
 // are not sent anywhere. The status bar shows "!N" while it is hidden and

@@ -258,8 +258,8 @@ option: theme: light
 		t.Fatalf("focus %v, pinned %v %v", m.focused.id, a.pinned, b.pinned)
 	}
 	// The missing folder: reported, and the app starts in the launch folder.
-	if !strings.Contains(m.status, "/no/such/folder") {
-		t.Fatalf("status %q", m.status)
+	if !strings.Contains(m.barMsg, "/no/such/folder") {
+		t.Fatalf("status %q", m.barMsg)
 	}
 	pump(t, m, func() bool { return c.currentDir() != "" })
 	if want, _ := filepath.EvalSymlinks(m.dir); c.currentDir() != want {

@@ -7,11 +7,10 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
-// Process figures for the status (F2) and inventory (F3) windows: memory
+// Process figures for the status (Alt+F2) and inventory (Alt+F3) windows: memory
 // and CPU of goat and of the programs in its windows.
 //
 // A sample is a table of every process on the machine (pid, parent, memory,
@@ -150,11 +149,10 @@ type cpuMeter struct {
 // read takes a reading; the percentage is over the time since the last
 // one (at least a second apart, else the last percentage stays).
 func (c *cpuMeter) read(now time.Time) (pct float64, total time.Duration, ok bool) {
-	var ru syscall.Rusage
-	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
+	used, ok := processCPUTime()
+	if !ok {
 		return 0, 0, false
 	}
-	used := time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
 	switch {
 	case c.at.IsZero():
 		c.at, c.used = now, used
