@@ -154,6 +154,19 @@ log_level = "info"
 #   "terminal" - the title the program sets (OSC 0/2), else the process name
 title_source = "process"
 
+# 24-bit color ("true color"): pass programs' exact colors on to the
+# terminal, or round them to the nearest of the 256 standard colors (what
+# macOS Terminal shows). Programs in goat's windows are told which
+# (COLORTERM=truecolor, or no COLORTERM), so they pick colors to suit.
+#   "auto" - the terminal's environment says: COLORTERM=truecolor, its TERM
+#            or terminfo, or a terminal known for it (iTerm2 also over ssh,
+#            through LC_TERMINAL; WezTerm, ghostty, VS Code, ...)
+#   "on"   - always: when "auto" guesses wrong, e.g. over ssh from a
+#            terminal ssh doesn't pass COLORTERM for. F2 (status) shows
+#            what goat decided, and why.
+#   "off"  - never
+true_color = "auto"
+
 [theme]
 # Colors are an ANSI palette index (0-255), "#rrggbb" or "default".
 focused_border = 14

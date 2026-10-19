@@ -84,7 +84,10 @@ type WM struct {
 
 	hostFg, hostBg color.Color // host terminal default colors, once known
 	combos         *comboSet   // palettes (combos.go; nil: none)
-	lingo          int         // the palette names' style (comboLingos)
+	// 24-bit color to the terminal and its programs, and why (truecolor.go).
+	trueColor    bool
+	trueColorWhy string
+	lingo        int // the palette names' style (comboLingos)
 	// local.toml, and the background window's colors saved there (desk;
 	// deskKnown: there are some). No localPath: nothing is saved.
 	localPath string
@@ -185,6 +188,7 @@ func (m *WM) snapshot() string {
 
 func (m *WM) startBackground() error {
 	win, err := newWindow(0, m.shell(), 0, 0, m.cols, m.areaH(), winOpts{
+		trueColor:  m.trueColor,
 		background: true, scrollback: m.cfg.ScrollbackLines, dir: m.dir,
 		nowrap: !m.cfg.WrapLines, nowrapW: m.cfg.NowrapWidth,
 	}, m.out)
@@ -391,6 +395,7 @@ func (m *WM) openWindow(o openSpec) (*Window, error) {
 		y = 0
 	}
 	opts := winOpts{
+		trueColor: m.trueColor,
 		decorated: decorated, frame: o.frame,
 		scrollback: m.cfg.ScrollbackLines, dir: o.dir,
 		nowrap: !o.wrap, nowrapW: m.cfg.NowrapWidth, command: o.command,

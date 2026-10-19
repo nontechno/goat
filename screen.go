@@ -40,7 +40,7 @@ type hostScreen struct {
 func newHostScreen(out io.Writer, env []string, w, h int) *hostScreen {
 	s := &hostScreen{out: out, shape: uv.CursorBlock, blink: true}
 	s.rend = uv.NewTerminalRenderer(&s.frame, env)
-	s.rend.SetColorProfile(colorprofile.Detect(out, env))
+	s.rend.SetColorProfile(colorprofile.Detect(out, env)) // (run sets the one true_color decides)
 	s.rend.SetFullscreen(true)
 	s.rend.SetRelativeCursor(false)
 	s.win = uv.NewScreen(w, h)

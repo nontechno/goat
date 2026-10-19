@@ -128,7 +128,7 @@ func TestInstallFailureChangesNothing(t *testing.T) {
 	gone := map[string]string{"local.toml": "missing"}
 	useSources(t, installServer(t, "main", &ver, gone), installServer(t, "backup", &ver, gone))
 	err := install(&bytes.Buffer{})
-	if err == nil || strings.Count(err.Error(), "404") != 2 || !strings.Contains(err.Error(), "nothing was changed") {
+	if err == nil || strings.Count(err.Error(), "404 Not Found") != 2 /* (not "404": the port may hold one) */ || !strings.Contains(err.Error(), "nothing was changed") {
 		t.Fatalf("err = %v", err)
 	}
 	entries, _ := os.ReadDir(filepath.Join(home, ".config", "goat"))
@@ -197,5 +197,16 @@ func TestInstallUsesXDGConfigHome(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", x)
 	if d, _ := configDir(); d != filepath.Join(x, "goat") {
 		t.Fatalf("%q", d)
+	}
+}
+
+// The palettes' real sources: color.nontechno.com, then GitHub.
+func TestInstallCombosSources(t *testing.T) {
+	want := []string{
+		"https://color.nontechno.com/terminal-color-combinations.json",
+		"https://raw.githubusercontent.com/nontechno/color/refs/heads/main/terminal-color-combinations.json",
+	}
+	if len(combosSources) != 2 || combosSources[0] != want[0] || combosSources[1] != want[1] {
+		t.Fatalf("sources: %v", combosSources)
 	}
 }

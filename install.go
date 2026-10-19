@@ -50,8 +50,8 @@ var installFiles = []struct {
 // https://github.com/nontechno/color. $GOAT_INSTALL_URL replaces them too
 // (<url>/colors/terminal-color-combinations.json).
 var combosSources = []string{
-	"https://raw.githubusercontent.com/nontechno/color/main/" + combosFile,
-	"https://color.nontechno.com/" + combosFile, // backup
+	"https://color.nontechno.com/" + combosFile,
+	"https://raw.githubusercontent.com/nontechno/color/refs/heads/main/" + combosFile, // backup
 }
 
 const (

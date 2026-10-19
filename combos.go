@@ -58,8 +58,8 @@ type combo struct {
 type comboSet struct {
 	all     []combo
 	byTheme [3][]int // indexes into all, in file order
-	// trueColor: use the exact RGB colors (COLORTERM says the terminal has
-	// 24-bit color), else the xterm-256 indexes (the same everywhere,
+	// trueColor: use the exact RGB colors (goat passes 24-bit color on:
+	// truecolor.go), else the xterm-256 indexes (the same everywhere,
 	// macOS Terminal included).
 	trueColor bool
 }
@@ -267,8 +267,6 @@ func loadCombos(dir string) (*comboSet, []string) {
 	if err != nil {
 		return nil, append(warns, fmt.Sprintf("%s: %v (no palettes)", path, err))
 	}
-	ct := strings.ToLower(os.Getenv("COLORTERM"))
-	s.trueColor = ct == "truecolor" || ct == "24bit"
 	return s, warns
 }
 

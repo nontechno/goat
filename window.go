@@ -164,6 +164,7 @@ type winOpts struct {
 	nowrap     bool     // long lines run past the right edge (wrap_lines = false)
 	nowrapW    int      // emulator width when not wrapping (nowrap_width)
 	command    []string // program and arguments ("": the shell)
+	trueColor  bool     // tell the program COLORTERM=truecolor (truecolor.go)
 }
 
 // newWindow starts shell in a PTY sized to the window's content area.
@@ -186,7 +187,7 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 		return nil, errors.New("no shell to start")
 	}
 	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = childEnv()
+	cmd.Env = childEnv(o.trueColor)
 	cmd.Dir = o.dir
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cw), Rows: uint16(ch)})
 	if err != nil {
@@ -307,8 +308,9 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	return win, nil
 }
 
-// childEnv is the environment for shells: the vt emulator is xterm-like.
-func childEnv() []string {
+// childEnv is the environment for shells: the vt emulator is xterm-like;
+// COLORTERM=truecolor only when goat passes 24-bit colors on (truecolor.go).
+func childEnv(trueColor bool) []string {
 	env := make([]string, 0, len(os.Environ())+2)
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "TERM=") || strings.HasPrefix(kv, "COLORTERM=") {
@@ -316,7 +318,11 @@ func childEnv() []string {
 		}
 		env = append(env, kv)
 	}
-	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+	env = append(env, "TERM=xterm-256color")
+	if trueColor {
+		env = append(env, "COLORTERM=truecolor")
+	}
+	return env
 }
 
 func (w *Window) setMode(m ansi.Mode, on bool) {

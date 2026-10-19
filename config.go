@@ -192,6 +192,10 @@ type Config struct {
 	// OSC 0/2, falling back to the process name).
 	TitleSource string `toml:"title_source"`
 
+	// 24-bit color: "auto" (the terminal's environment says), "on" or
+	// "off" (truecolor.go).
+	TrueColor string `toml:"true_color"`
+
 	// Copying selected text: via the terminal (OSC 52, works over SSH) and/or
 	// by piping it to a command ("" = detect one: tmux, clip.exe, pbcopy,
 	// wl-copy, xclip, xsel; "none" = no command).
@@ -223,6 +227,7 @@ func DefaultConfig() *Config {
 		LogLevel:        "info",
 		NowrapWidth:     512,
 		TitleSource:     "process",
+		TrueColor:       "auto",
 		Frame:           "full",
 		ClipboardOSC52:  true,
 		ShowHost:        true,
@@ -338,6 +343,12 @@ func (c *Config) finish(md *toml.MetaData) []string {
 	} else {
 		warn("frame %q: want \"full\", \"compact\" or \"none\"", c.Frame)
 		c.Frame, c.frame = "full", frameFull
+	}
+	switch c.TrueColor {
+	case "auto", "on", "off":
+	default:
+		warn("true_color = %q: use \"auto\", \"on\" or \"off\" (using \"auto\")", c.TrueColor)
+		c.TrueColor = "auto"
 	}
 	switch c.TitleSource {
 	case "process", "terminal":

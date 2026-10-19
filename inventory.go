@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -119,6 +120,7 @@ func (m *WM) inventoryLines(width int) ([]string, []invRow) {
 	}
 	var rows []invRow
 	procs := m.procs.table.Load()
+	track := m.meterTrack(m.inv.win)
 	for _, e := range entries {
 		row := invRow{win: e, first: len(lines)}
 		head := m.tabName(e)
@@ -132,7 +134,11 @@ func (m *WM) inventoryLines(width int) ([]string, []invRow) {
 			head = bold + head + plain
 		}
 		lines = append(lines, head)
-		for _, d := range m.inventoryDetails(e, procs) {
+		for _, d := range m.inventoryDetails(e, procs, width-4, track) {
+			if raw, ok := strings.CutPrefix(d, rawLine); ok { // laid out already (meters)
+				lines = append(lines, fitWide("    "+raw, width))
+				continue
+			}
 			for _, part := range wrapWords(d, max(width-6, 10)) {
 				lines = append(lines, fitStart("    "+part, width))
 			}
@@ -168,8 +174,12 @@ func (m *WM) inventoryFlags(w *Window) string {
 	return strings.Join(f, " · ")
 }
 
-// inventoryDetails are the lines under a window's name.
-func (m *WM) inventoryDetails(w *Window, procs *procTable) []string {
+// rawLine starts a detail line that is laid out already (it has bars,
+// whose spaces mustn't be wrapped at).
+const rawLine = "\x00"
+
+// inventoryDetails are the lines under a window's name, for a width.
+func (m *WM) inventoryDetails(w *Window, procs *procTable, width int, track string) []string {
 	if m.isPanel(w) {
 		what := map[string]string{
 			"events":    "bells, notifications, exits, … (Alt+" + m.cfg.Keys.ShowEvents + ")",
@@ -198,8 +208,9 @@ func (m *WM) inventoryDetails(w *Window, procs *procTable) []string {
 		if len(names) > 4 {
 			names = append(slices.Clone(names[:4]), ellipsis)
 		}
-		out = append(out, fmt.Sprintf("%s · %s · %s · %s CPU · pid %d",
-			strings.Join(names, " "), nouns(t.count, "process", "processes"), fmtBytes(t.rss), fmtPct(t.cpu), w.pid()))
+		out = append(out, fmt.Sprintf("%s · %s · pid %d",
+			strings.Join(names, " "), nouns(t.count, "process", "processes"), w.pid()))
+		out = append(out, inventoryMeters(t, width, track)...)
 	}
 
 	// Where.
@@ -232,9 +243,53 @@ func (m *WM) inventoryDetails(w *Window, procs *procTable) []string {
 			out = append(out, fmt.Sprintf("status: %d more", len(ids)-most))
 			break
 		}
-		out = append(out, "status: "+statusShortText(id, w.status.records[id].statusReport, w.status.app(id)))
+		r := w.status.records[id].statusReport
+		out = append(out, "status: "+statusShortText(id, r, w.status.app(id)))
+		if r.progress >= 0 { // its progress as a bar too
+			pct := fmt.Sprintf("%d%%", r.progress)
+			out = append(out, rawLine+"        "+meterBar(float64(r.progress)/100, meterWidth(width-8-len(pct)-1), track)+" "+pct)
+		}
 	}
 	return out
+}
+
+// inventoryMeters are a window's CPU and memory, with bars (meter.go):
+// on one line when they fit, else one each.
+//
+//	CPU    █▍░░░░░░░░░░ 1.4% of 8 CPUs   memory ██▌░░░░░░░░░ 2.1 GB of 16.0 GB
+func inventoryMeters(t procTotal, width int, track string) []string {
+	cpus := float64(runtime.NumCPU())
+	ram := physicalMemory()
+	type meter struct {
+		label, text string
+		frac        float64
+	}
+	ms := []meter{
+		{"CPU", cpuText(t.cpu, cpus), share(t.cpu, 100*cpus)},
+		{"memory", memText(t.rss, ram), share(float64(t.rss), float64(ram))},
+	}
+	if ram == 0 { // no total to measure against: the number alone
+		ms[1].frac = -1
+	}
+	draw := func(m meter, bw int) string {
+		s := fmt.Sprintf("%-6s ", m.label)
+		if m.frac >= 0 {
+			s += meterBar(m.frac, bw, track) + " "
+		}
+		return s + m.text
+	}
+	const gap = "   "
+	textW := 0
+	for _, m := range ms {
+		textW = max(textW, textWidth(m.text))
+	}
+	// One line: two bars and their texts.
+	if bw := (width - len(gap) - 2*(7+1+textW)) / 2; bw >= 8 {
+		bw = min(bw, 12)
+		return []string{rawLine + draw(ms[0], bw) + strings.Repeat(" ", max(textW-textWidth(ms[0].text), 0)) + gap + draw(ms[1], bw)}
+	}
+	bw := meterWidth(width - 7 - textW - 1)
+	return []string{rawLine + draw(ms[0], bw), rawLine + draw(ms[1], bw)}
 }
 
 // statusShortText is a status record in a few words:

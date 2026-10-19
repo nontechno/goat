@@ -122,6 +122,13 @@ const (
 // (events.go eventsIndicator).
 const unseenEventsSymbol = "!"
 
+// ---- meters (meter.go meterBar) ---------------------------------------------
+//
+// A value as a bar, in eighths of a cell, on a track a shade off the
+// window's background, in the status (F2) and inventory (F3) windows:
+// ██████▍░░░░ 26%.
+var barEighths = [8]rune{'▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'} // 1/8 … 8/8 of a cell
+
 // ---- text ------------------------------------------------------------------
 
 // ellipsis marks text cut to fit: "abc…" (render.go fitStart; also every

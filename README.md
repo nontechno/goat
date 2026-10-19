@@ -71,6 +71,14 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   time goat starts. See [palettes.md](palettes.md)
 - Keyboard-driven window management, plus mouse: drag the title bar to move,
   drag the left/right/bottom edges or bottom corners to resize, click to focus
+- 24-bit color ("true color") is passed through exactly when the terminal
+  has it, else rounded to the nearest of the 256 colors. goat works out
+  which from `COLORTERM`, `TERM` and terminfo, and recognizes iTerm2 even
+  over ssh (`LC_TERMINAL`, which ssh passes on where it drops `COLORTERM`),
+  as well as WezTerm, ghostty and VS Code. `true_color = "on"` in config.toml
+  forces it on; F2 (status) shows what goat decided and why. Programs in
+  windows get `COLORTERM=truecolor` only when it is on, so they pick the
+  same colors as they would outside goat
 - Full rendering: 256-color and true color, bold/italic/underline/reverse,
   wide (CJK/emoji) characters
 - What programs print stays inside their windows, whatever it is:
@@ -152,6 +160,13 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   double click) goes to it, bringing it back if Alt+0 hid it. F3 again
   hides it. Process figures come from `/proc` on Linux and `ps` on macOS,
   sampled every 2 s, only while the status or inventory window is open
+- In both, CPU, memory and a program's reported progress are drawn as
+  bars beside their numbers (`████▋      43%`): CPU as a share of all the
+  machine's CPUs, memory of all its memory. The bars fill in eighths of a
+  cell (▏▎▍▌▋▊▉█), so a 25-cell bar shows half a percent; narrower windows
+  get shorter bars. The part not filled is drawn in a shade a little
+  lighter than the window's background (darker, on a light one), so the
+  whole length shows without end marks
 - goat's own windows (help, status, inventory, events) can be set up in
   `~/.config/goat/system.toml`: title, the key that shows them, palette,
   size and position (columns / rows or a percentage of the screen; a
@@ -282,7 +297,8 @@ are still open; then a fresh background shell is started.
 `$XDG_CONFIG_HOME/goat`): it downloads `config.toml` and `local.toml` from
 https://goat.nontechno.com/configs/ and the palettes,
 `terminal-color-combinations.json`, from
-https://github.com/nontechno/color (backup: https://color.nontechno.com/),
+https://color.nontechno.com/ (backup: the GitHub copy,
+https://raw.githubusercontent.com/nontechno/color/refs/heads/main/),
 then exits. A config file that can't be downloaded from there (or isn't a
 valid file of its kind) comes from the backup copy at
 https://raw.githubusercontent.com/nontechno/goat/refs/heads/resources/

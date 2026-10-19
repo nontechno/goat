@@ -129,8 +129,9 @@ func TestInventoryToggleAndChoose(t *testing.T) {
 	}
 	text := panelScreen(m, inv)
 	for _, want := range []string{"2 floating windows + the background", "0:", "1:", "2:", "background",
-		"zsh vim gopls · 3 processes · 42.0 MB · 12% CPU · pid 200", "/tmp/project",
-		"status: working 40% · claude · Running tests", "Enter go to it"} {
+		"zsh vim gopls · 3 processes · pid 200", "CPU    ", "memory ",
+		"42.0 MB", "/tmp/project", "status: working 40% · claude · Running tests",
+		"          ██████████" + strings.Repeat(" ", 15) + " 40%", "Enter go to it"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("inventory lacks %q:\n%s", want, text)
 		}

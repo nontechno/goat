@@ -156,6 +156,9 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 		cols, rows = 80, 24
 	}
 	scr := newHostScreen(out, os.Environ(), cols, rows)
+	trueColor, trueWhy := hostTrueColor(cfg.TrueColor, out, os.Environ()) // truecolor.go
+	scr.rend.SetColorProfile(colorProfile(trueColor))
+	logger.Info("colors", "true_color", trueColor, "because", trueWhy, "setting", cfg.TrueColor)
 	mouse := !cfg.DisableMouse
 	logSessionStart(cfgPath, cols, rows)
 	for _, w := range warns {
@@ -216,6 +219,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	}
 	m := newWM(cfg, warns, cols, rows)
 	m.localPath, m.desk, m.deskKnown = localPath, desk, deskKnown
+	m.trueColor, m.trueColorWhy = trueColor, trueWhy
 	m.cfgPath = cfgPath
 	m.wrapFromConfig = &wrapFromConfig
 	if lc, ok := readLocalConfig(localPath); ok {
@@ -244,6 +248,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 			logger.Warn("palettes", "msg", w)
 		}
 		if m.combos != nil {
+			m.combos.trueColor = m.trueColor
 			logger.Info("palettes", "count", len(m.combos.all), "true_color", m.combos.trueColor)
 		}
 		m.sys.path = filepath.Join(dir, systemFile)

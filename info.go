@@ -99,7 +99,38 @@ func buildInfo() string {
 // infoSection is a heading and its (label, value) rows.
 type infoSection struct {
 	title string
-	rows  [][2]string
+	rows  []infoRow
+}
+
+// infoRow is a label and its value; a meter row also draws the value as a
+// bar (meter.go), before its text.
+type infoRow struct {
+	label, value string
+	frac         float64 // the bar's fill, 0 to 1
+	meter        bool
+}
+
+func row(label, value string) infoRow { return infoRow{label: label, value: value} }
+
+func meterRow(label string, frac float64, value string) infoRow {
+	return infoRow{label: label, value: value, frac: frac, meter: true}
+}
+
+// cpuText is CPU use as a share of the whole machine: "0.5% of 8 CPUs"
+// (pct is of one CPU, as ps and /proc have it).
+func cpuText(pct, cpus float64) string {
+	if cpus <= 1 {
+		return fmtPct(pct)
+	}
+	return fmt.Sprintf("%s of %d CPUs", fmtPct(pct/cpus), int(cpus))
+}
+
+// memText is memory used, and of how much: "41.2 MB of 16.0 GB".
+func memText(used, total uint64) string {
+	if total == 0 {
+		return fmtBytes(used)
+	}
+	return fmtBytes(used) + " of " + fmtBytes(total)
 }
 
 // infoText is what the status window shows, now.
@@ -120,17 +151,18 @@ func (m *WM) infoText(now time.Time) []infoSection {
 		term = id + ", " + term
 	}
 	since := now.Sub(m.started)
-	static := infoSection{"goat " + version, [][2]string{
-		{"build", buildInfo()},
-		{"running", fmt.Sprintf("since %s (%s) · pid %d", m.started.Format("2006-01-02 15:04:05"), fmtSince(since), os.Getpid())},
-		{"on", hostSymbol + shownHost + " as " + userSymbol + user},
-		{"terminal", fmt.Sprintf("%s · %d×%d", term, m.cols, m.rows)},
-		{"config", orNone(homeShort(m.cfgPath, m.home), "(defaults: no config.toml)")},
-		{"local", orNone(homeShort(m.localPath, m.home), "(none)")},
-		{"aliases", m.aliasInfo()},
-		{"palettes", m.combosInfo()},
-		{"system", orNone(homeShort(m.sys.path, m.home), "(none)") + orNone(map[bool]string{true: " · not used: " + m.sys.err}[m.sys.err != ""], "")},
-		{"log", orNone(homeShort(logPath, m.home), "(off)")},
+	static := infoSection{"goat " + version, []infoRow{
+		row("build", buildInfo()),
+		row("running", fmt.Sprintf("since %s (%s) · pid %d", m.started.Format("2006-01-02 15:04:05"), fmtSince(since), os.Getpid())),
+		row("on", hostSymbol+shownHost+" as "+userSymbol+user),
+		row("terminal", fmt.Sprintf("%s · %d×%d", term, m.cols, m.rows)),
+		row("colors", m.colorsInfo()),
+		row("config", orNone(homeShort(m.cfgPath, m.home), "(defaults: no config.toml)")),
+		row("local", orNone(homeShort(m.localPath, m.home), "(none)")),
+		row("aliases", m.aliasInfo()),
+		row("palettes", m.combosInfo()),
+		row("system", orNone(homeShort(m.sys.path, m.home), "(none)")+orNone(map[bool]string{true: " · not used: " + m.sys.err}[m.sys.err != ""], "")),
+		row("log", orNone(homeShort(logPath, m.home), "(off)")),
 	}}
 
 	// Windows.
@@ -169,14 +201,19 @@ func (m *WM) infoText(now time.Time) []infoSection {
 		focused = m.tabName(m.focused)
 	}
 
-	// Processes in the windows, goat's memory and CPU.
+	// Processes in the windows, goat's memory and CPU: with a bar each,
+	// of all the machine's CPUs and memory (meter.go).
+	cpus := float64(runtime.NumCPU())
+	ram := physicalMemory()
 	procs := m.procs.table.Load()
-	programs := "…"
-	var goatRSS string
+	programs := row("programs", "…")
+	progCPU, progMem := row("programs CPU", "…"), row("programs memory", "…")
+	goatMem := row("goat memory", "…")
 	switch {
 	case procs == nil:
 	case procs.err != "":
-		programs = "unknown: " + procs.err
+		programs.value = "unknown: " + procs.err
+		progCPU.value, progMem.value, goatMem.value = "unknown", "unknown", "unknown"
 	default:
 		var all procTotal
 		for _, w := range m.programWindows() {
@@ -186,19 +223,23 @@ func (m *WM) infoText(now time.Time) []infoSection {
 				all.cpu += t.cpu
 			}
 		}
-		programs = fmt.Sprintf("%s · %s memory · %s CPU", nouns(all.count, "process", "processes"), fmtBytes(all.rss), fmtPct(all.cpu))
+		programs.value = nouns(all.count, "process", "processes") + " in the windows"
+		progCPU = meterRow("programs CPU", share(all.cpu, 100*cpus), cpuText(all.cpu, cpus))
+		progMem = meterRow("programs memory", share(float64(all.rss), float64(ram)), memText(all.rss, ram))
 		if p, ok := procs.procs[os.Getpid()]; ok {
-			goatRSS = fmtBytes(p.rss) + " resident · "
+			goatMem = meterRow("goat memory", share(float64(p.rss), float64(ram)), memText(p.rss, ram))
 		}
 	}
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	memory := fmt.Sprintf("%sGo heap %s of %s from the system", goatRSS, fmtBytes(ms.HeapAlloc), fmtBytes(ms.Sys))
-	cpu := "…"
+	heap := meterRow("Go heap", share(float64(ms.HeapAlloc), float64(ms.Sys)),
+		fmt.Sprintf("%s of %s", fmtBytes(ms.HeapAlloc), fmtBytes(ms.Sys)))
+	goatCPU := row("goat CPU", "…")
 	if pct, total, ok := m.cpu.read(now); ok {
-		cpu = fmt.Sprintf("%s now · %s in all", fmtPct(pct), total.Round(10*time.Millisecond))
+		goatCPU = meterRow("goat CPU", share(pct, 100*cpus),
+			cpuText(pct, cpus)+" · "+total.Round(10*time.Millisecond).String()+" in all")
 	} else if total > 0 {
-		cpu = fmt.Sprintf("%s in all", total.Round(10*time.Millisecond))
+		goatCPU.value = total.Round(10*time.Millisecond).String() + " in all"
 	}
 	history := 0
 	for _, w := range m.programWindows() {
@@ -209,17 +250,16 @@ func (m *WM) infoText(now time.Time) []infoSection {
 		events += fmt.Sprintf(" (%d unseen)", m.ev.unseen)
 	}
 
-	dynamic := infoSection{"Now", [][2]string{
-		{"windows", wins},
-		{"panels", orNone(strings.Join(panels, ", "), "(none)")},
-		{"focused", focused},
-		{"programs", programs},
-		{"goat memory", memory},
-		{"goat CPU", cpu},
-		{"goroutines", fmtCount(runtime.NumGoroutine())},
-		{"history", fmtCount(history) + " lines kept"},
-		{"events", events},
-		{"app status", m.appStatusInfo()},
+	dynamic := infoSection{"Now", []infoRow{
+		row("windows", wins),
+		row("panels", orNone(strings.Join(panels, ", "), "(none)")),
+		row("focused", focused),
+		programs, progCPU, progMem,
+		goatCPU, goatMem, heap,
+		row("goroutines", fmtCount(runtime.NumGoroutine())),
+		row("history", fmtCount(history)+" lines kept"),
+		row("events", events),
+		row("app status", m.appStatusInfo()),
 	}}
 	return []infoSection{static, dynamic}
 }
@@ -251,6 +291,14 @@ func (m *WM) aliasInfo() string {
 		return where + " (none)"
 	}
 	return where + " · " + nouns(n, "alias", "aliases")
+}
+
+// colorsInfo says whether goat passes 24-bit color on, and why.
+func (m *WM) colorsInfo() string {
+	if m.trueColor {
+		return "24-bit (" + m.trueColorWhy + ")"
+	}
+	return "256: " + m.trueColorWhy
 }
 
 // combosInfo describes the palettes: how many, the names' style, the color
@@ -311,25 +359,55 @@ func (w *Window) pid() int {
 // infoLines lays the status text out for a width: labels, and values
 // wrapped beside them.
 func (m *WM) infoLines(width int, now time.Time) []string {
-	return labeledLines(m.infoText(now), width)
+	return labeledLines(m.infoText(now), width, m.meterTrack(m.info.win))
 }
 
-// labeledLines lays out sections of (label, value) rows: a bold heading,
-// then "  label  value" with long values wrapped under themselves (or
-// under the label, in a narrow window). No line is wider than width.
-func labeledLines(sections []infoSection, width int) []string {
+// labeledLines lays out sections of rows: a bold heading, then
+// "  label  value" with long values wrapped under themselves (or under the
+// label, in a narrow window). A meter row starts its value with its bar,
+// its track drawn with track.
+// No line is wider than width.
+func labeledLines(sections []infoSection, width int, track string) []string {
 	const bold, plain = "\x1b[1m", "\x1b[0m"
 	labelW := 0
 	for _, s := range sections {
 		for _, r := range s.rows {
-			labelW = max(labelW, textWidth(r[0]))
+			labelW = max(labelW, textWidth(r.label))
 		}
 	}
 	indent := 2 + labelW + 2
 	twoCols := width >= indent+20
 	var lines []string
 	add := func(prefix, text string) {
-		lines = append(lines, fitStart(prefix+text, width))
+		lines = append(lines, fitWide(prefix+text, width))
+	}
+	// value adds a value, wrapped to the room after at; first is what
+	// goes before its first line (the label), at its width.
+	value := func(r infoRow, first string, at int) {
+		room := width - at
+		pad := strings.Repeat(" ", at)
+		if r.meter {
+			bw := meterWidth(room - textWidth(r.value) - 1) // leaving room for the number
+			bar := meterBar(r.frac, bw, track) + " "
+			at += bw + 1
+			room = width - at
+			parts := wrapWords(r.value, max(room, 8))
+			if len(parts) == 0 {
+				parts = []string{""}
+			}
+			add(first, bar+parts[0])
+			for _, p := range parts[1:] {
+				add(strings.Repeat(" ", at), p)
+			}
+			return
+		}
+		for j, v := range wrapWords(r.value, max(room, 8)) {
+			if j == 0 {
+				add(first, v)
+			} else {
+				add(pad, v)
+			}
+		}
 	}
 	for i, s := range sections {
 		if i > 0 {
@@ -338,19 +416,11 @@ func labeledLines(sections []infoSection, width int) []string {
 		lines = append(lines, bold+fitStart(s.title, width)+plain)
 		for _, r := range s.rows {
 			if !twoCols {
-				add("  ", r[0])
-				for _, v := range wrapWords(r[1], max(width-4, 8)) {
-					add("    ", v)
-				}
+				add("  ", r.label)
+				value(r, "    ", 4)
 				continue
 			}
-			for j, v := range wrapWords(r[1], width-indent) {
-				if j == 0 {
-					add("  "+r[0]+strings.Repeat(" ", labelW-textWidth(r[0])+2), v)
-				} else {
-					add(strings.Repeat(" ", indent), v)
-				}
-			}
+			value(r, "  "+r.label+strings.Repeat(" ", labelW-textWidth(r.label)+2), indent)
 		}
 	}
 	return lines

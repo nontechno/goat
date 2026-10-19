@@ -2,11 +2,13 @@ package main
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestInfoToggle(t *testing.T) {
@@ -24,12 +26,21 @@ func TestInfoToggle(t *testing.T) {
 	if !m.infoShown() || m.focused != w || m.tabName(w) != "status" {
 		t.Fatal("F2 didn't show the status window, focused")
 	}
-	text := panelScreen(m, w)
+	text := panelScreen(m, w) + strings.Join(m.infoLines(w.contentW(), time.Now()), "\n") // (all of it: the window may be shorter)
 	for _, want := range []string{"goat " + version, "build", "go1.", "pid", "Now",
-		"2 floating + the background", "panels", "status", "2 processes · 10.0 MB memory · 4.0% CPU",
-		"30.0 MB resident", "goroutines", "no program reports"} {
+		"2 floating + the background", "panels", "status", "2 processes in the windows",
+		"programs CPU     " + meterBar(share(4, 100*float64(runtime.NumCPU())), 25, m.meterTrack(w)),
+		"programs memory  ", "10.0 MB of ", "goat memory      ", "30.0 MB of ",
+		"Go heap          ", "goroutines", "no program reports"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("status lacks %q:\n%s", want, text)
+		}
+	}
+	for _, label := range []string{"programs memory", "goat memory", "Go heap"} { // with bars
+		for _, l := range m.infoLines(w.contentW(), time.Now()) {
+			if strings.Contains(l, label) && !strings.Contains(l, m.meterTrack(w)) {
+				t.Errorf("%s: no bar: %q", label, l)
+			}
 		}
 	}
 	// Not numbered, not hidden by Alt+0, can't be swapped.
@@ -51,7 +62,7 @@ func TestInfoToggle(t *testing.T) {
 	b.minimized = true
 	b.status.apply(statusReport{state: stBlocked, kind: "permission", progress: -1})
 	m.tick(time.Now().Add(2 * infoEvery))
-	text = panelScreen(m, w)
+	text = strings.Join(m.infoLines(w.contentW(), time.Now()), "\n")
 	if !strings.Contains(text, "(1 hidden)") || !strings.Contains(text, "1 window: 1 blocked") {
 		t.Errorf("not refreshed:\n%s", text)
 	}
@@ -90,7 +101,7 @@ func TestInfoNarrow(t *testing.T) {
 		t.Errorf("narrow layout:\n%s", all)
 	}
 	for _, line := range strings.Split(all, "\n") {
-		if textWidth(line) > w.contentW() {
+		if ansi.StringWidth(line) > w.contentW() { // (bars hold escape sequences)
 			t.Errorf("line wider than the window: %q", line)
 		}
 	}

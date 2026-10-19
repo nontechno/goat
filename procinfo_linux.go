@@ -79,3 +79,22 @@ func parseProcStat(s string, page uint64) (p procSample, cpuTicks uint64, ok boo
 	}
 	return p, utime + stime, true
 }
+
+// memoryTotal is the machine's memory, from /proc/meminfo (0 if unknown).
+func memoryTotal() uint64 {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if rest, ok := strings.CutPrefix(line, "MemTotal:"); ok {
+			f := strings.Fields(rest) // "16303116 kB"
+			if len(f) >= 1 {
+				if kb, err := strconv.ParseUint(f[0], 10, 64); err == nil {
+					return kb * 1024
+				}
+			}
+		}
+	}
+	return 0
+}
