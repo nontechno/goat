@@ -15,11 +15,11 @@ import (
 // looks the same the next time goat starts:
 //
 //	[background_window]
-//	bg = 17    # Midnight
-//	fg = 230   # Cream
+//	bg = 233   # Spring Green on Midnight Navy
+//	fg = 115
 //
 // goat writes this section whenever the background window's colors change
-// (Alt+b / Alt+f on it, or Alt+s bringing another window's colors there),
+// (a palette chosen with Alt+t, or Alt+s bringing another window's there),
 // leaving the rest of the file as it is. "default" (or a missing key) is
 // the terminal's own color.
 
@@ -140,29 +140,14 @@ func replaceSection(lines []string, name string, section []string) string {
 }
 
 // restoreDesktop gives the background window the saved colors (at startup,
-// and when a fresh background shell starts), finding them in the .color
-// lists so Alt+b / Alt+f go on from there, and making sure the text shows.
+// and when a fresh background shell starts), with the palette they are
+// (if any), making sure the text shows.
 func (m *WM) restoreDesktop(w *Window) {
 	if !m.deskKnown {
 		return
 	}
 	w.bgColor, w.fgColor = m.desk.bg, m.desk.fg
-	w.bgPick, w.fgPick = 0, 0
-	if p := m.palette; p != nil {
-		for i, c := range p.bgs {
-			if sameColor(c.c, w.bgColor) {
-				w.bgPick = i + 1
-				break
-			}
-		}
-		w.fgTone = m.backgroundTone(w)
-		for i, c := range p.fgs[w.fgTone] {
-			if sameColor(c.c, w.fgColor) {
-				w.fgPick = i + 1
-				break
-			}
-		}
-	}
+	w.pal = m.findCombo(w.bgColor, w.fgColor) + 1
 	m.fixText(w)
 }
 
@@ -178,13 +163,8 @@ func (m *WM) saveDesktop() {
 		return
 	}
 	var names [2]string
-	if p := m.palette; p != nil {
-		if w.bgPick > 0 && w.bgPick <= len(p.bgs) {
-			names[0] = p.bgs[w.bgPick-1].name
-		}
-		if w.fgPick > 0 && w.fgPick <= len(p.fgs[w.fgTone]) {
-			names[1] = p.fgs[w.fgTone][w.fgPick-1].name
-		}
+	if c := m.combos.get(w.pal - 1); c != nil { // the palette, by its plain name
+		names[0] = c.names[0]
 	}
 	if err := writeDesktopColors(m.localPath, d, names); err != nil {
 		logger.Warn("saving the background window's colors", "file", m.localPath, "err", err)

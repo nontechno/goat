@@ -38,8 +38,8 @@ alt_timeout_ms = 200
 mac_option_keys = "on"
 
 # macOS Terminal sends Option+Left / Option+Right as Esc b / Esc f, the same
-# as Alt+b / Alt+f (word left / right in a shell), so they would change the
-# window's colors instead of moving it. With this on they move the window;
+# as Alt+b / Alt+f (word left / right in a shell), so they would go to the
+# program instead of moving the window. With this on they move the window;
 # Alt+b / Alt+f stay available as Option+b / Option+f (with mac_option_keys)
 # and as Esc then b / f.
 # (goat -learn finds this out, and saves it in local.toml; that replaces
@@ -111,10 +111,10 @@ status_show_dir = true
 
 # Show the host name on the left of each window's bottom border (frames
 # "full" and "compact"; "none" has no bottom border):  └─ 💻myhost ────[]─┘
-# The name is "hostname" in ~/.config/goat/local.toml (up to 32 characters),
-# so you can give a machine a friendlier or shorter label; without it (or if
-# it is blank) it is the system's host name. local.toml and the system name
-# are re-read every 5 seconds, so a rename shows up by itself.
+# The name is the system's host name (re-read every 5 seconds, so a rename
+# shows up by itself). To show a friendlier or shorter name, give it an alias
+# in ~/.config/goat/alias.toml: [host] "build-07.corp.example.com" = "build"
+# (see aliasing.md).
 show_host = true
 
 # Show the user name there too:  └─ 🧑alice 💻myhost ──[]─┘
@@ -172,28 +172,28 @@ hint_text = 11
 clock_fg = 231
 clock_bg = 24
 # Background of the window frame, title included (only used when frame is
-# "compact" or "none" and the window has no Alt+b colors). Leave unset
+# "compact" or "none" and the window has no palette). Leave unset
 # (commented out) for the terminal's default.
 # compact_title_bg = 236
 
-# Window colors come from the .color files in this folder
-# (dark-background.color, light-background.color, dark-foreground.color,
-# light-foreground.color; "goat -install" fetches them): Alt+b steps the
-# background, Alt+f the text color. The window's border takes the background.
-# The background window's (Alt+0) colors are saved in local.toml whenever
-# they change, and restored when goat starts.
+# Window colors are palettes: background + text pairs from
+# terminal-color-combinations.json in this folder ("goat -install" fetches
+# it; https://github.com/nontechno/color). Alt+t (keys.palette) chooses one
+# for the active window; its border takes the background. The background
+# window's (Alt+0) palette is saved in local.toml, the palettes of goat's
+# own windows (help, status, inventory, events) in system.toml.
 
 # A new window (Alt+c) takes its colors from the active window:
-#   true  - the background after the active window's (with a text color for
-#           it), so it stands out from the window it was opened from
-#   false - the same background and text color as the active window
+#   true  - the palette after the active window's (the next background of
+#           its theme), so it stands out from the window it was opened from
+#   false - the same palette as the active window
 new_window_next_colors = true
 
 # Text must stand out from its background by at least this contrast ratio
 # (1-21, as in the WCAG guidelines; 3 is the minimum for large text, 4.5 for
-# body text). Alt+f skips text colors below it; when a new background
-# (Alt+b, a new window, the saved background-window colors) would hide the
-# text, its text color is changed. 0 turns the check off.
+# body text). When colors set otherwise (a launch script's bg / fg, the
+# saved background-window colors) would hide the text, its text color is
+# changed. Palettes are readable as they are. 0 turns the check off.
 min_text_contrast = 3
 
 [keys]
@@ -215,14 +215,14 @@ resize_down = "J"           # Alt+Shift+J: taller
 resize_up = "K"             # Alt+Shift+K: shorter
 resize_right = "L"          # Alt+Shift+L: wider
 pin_window = "w"            # keep this window above all others
-cycle_background = "b"      # next background color (dark ones, light ones, terminal's)
-cycle_foreground = "f"      # next text color for the background's tone (dark/light)
+palette = "t"               # choose the active window's palette (colors)
 toggle_wrap = "z"           # wrap long lines, or not (see wrap_lines)
 scroll_left = "<"           # not wrapping: view left (Alt+Shift+,)
 scroll_right = ">"          # ... and right (Alt+Shift+.)
 show_events = "-"           # events window: bells, notifications, exits, ...
 swap_background = "s"       # swap the active window's program with the background's
 repaint = "r"               # redraw the whole screen (repairs anything that garbled it)
+settings = "o"              # settings dialog: edit, save and apply ~/.config/goat/local.toml
 
 [layout]
 # Offset, in character cells, when cascading a new window from the focused one.
@@ -230,6 +230,7 @@ cascade_offset_x = 2
 cascade_offset_y = 1
 
 # Size of a new window relative to the area above the status bar (0.0-1.0].
+# new_window_size in ~/.config/goat/local.toml replaces these on that machine.
 new_window_width_ratio = 0.5
 new_window_height_ratio = 0.5
 

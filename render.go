@@ -16,6 +16,9 @@ type scene struct{ m *WM }
 func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 	m := s.m
 	m.syncEvents()                // the events window's contents (events.go)
+	m.syncHelp()                  // the help window's, laid out for its width (help.go)
+	m.syncInfo(time.Now())        // the status window's (info.go)
+	m.syncInventory(time.Now())   // the inventory's (inventory.go)
 	for _, w := range m.windows { // bottom to top: later windows cover earlier
 		if w.minimized { // hidden with Alt+0
 			continue
@@ -29,6 +32,12 @@ func (s scene) Draw(scr uv.Screen, _ uv.Rectangle) {
 	m.drawStatus(scr) // last, so windows never cover it
 	if m.quitAsk != nil {
 		m.drawQuitDialog(scr) // over everything
+	}
+	if m.settings != nil {
+		m.drawSettings(scr) // over everything
+	}
+	if m.palDlg != nil {
+		m.drawPalette(scr) // over everything
 	}
 }
 
@@ -361,7 +370,7 @@ func (m *WM) drawStatus(scr uv.Screen) {
 		putCells(scr, clockX, y, clock)
 	}
 	if m.bar.host != "" {
-		hs := textCells(" "+hostSymbol+m.bar.host+" ", base, clockX)
+		hs := textCells(" "+hostSymbol+m.showHost(m.bar.host)+" ", base, clockX)
 		clockX -= cellsWidth(hs)
 		putCells(scr, clockX, y, hs)
 	}
@@ -414,7 +423,7 @@ func (m *WM) drawStatus(scr uv.Screen) {
 		room -= cellsWidth(msgCells) + 1
 	}
 	if m.cfg.StatusShowDir && m.focused != nil && m.focused.dir != "" && room > 2 {
-		dir := fitEnd(homeShort(m.focused.dir, m.home), room-1)
+		dir := fitEnd(m.showDir(m.focused.dir), room-1) // alias.toml [directory], or ~
 		cs := textCells(dir, base, room-1)
 		end -= cellsWidth(cs)
 		putCells(scr, end, y, cs)
@@ -479,7 +488,7 @@ func homeShort(dir, home string) string {
 // window.
 func (m *WM) cursorFor() (x, y int, ok bool) {
 	w := m.focused
-	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 || m.quitAsk != nil {
+	if w == nil || w.closed || !w.cursorVisible || w.scroll > 0 || m.quitAsk != nil || m.settings != nil || m.palDlg != nil {
 		return 0, 0, false
 	}
 	p := w.emu.CursorPosition()

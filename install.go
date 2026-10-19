@@ -17,8 +17,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// "goat -install": fetch goat's color and config files into the config
-// directory, then exit.
+// "goat -install": fetch goat's config files and the palettes
+// (terminal-color-combinations.json) into the config directory, then exit.
 //
 // Every file is downloaded before anything is written, so a failed download
 // leaves the directory as it was. A file already there with the same
@@ -35,14 +35,23 @@ var installSources = []string{
 }
 
 // installFiles are the files -install fetches: a directory on the server
-// and the file name, which is also the name in the config directory.
-var installFiles = []struct{ dir, name string }{
-	{"colors", "dark-background.color"},
-	{"colors", "dark-foreground.color"},
-	{"colors", "light-background.color"},
-	{"colors", "light-foreground.color"},
-	{"configs", "config.toml"},
-	{"configs", "local.toml"},
+// and the file name, which is also the name in the config directory. The
+// palettes come from their own sources (combosSources) instead.
+var installFiles = []struct {
+	dir, name string
+	palettes  bool // from combosSources
+}{
+	{dir: "configs", name: "config.toml"},
+	{dir: "configs", name: "local.toml"},
+	{dir: "colors", name: combosFile, palettes: true}, // palettes (combos.go)
+}
+
+// combosSources are where the palettes come from:
+// https://github.com/nontechno/color. $GOAT_INSTALL_URL replaces them too
+// (<url>/colors/terminal-color-combinations.json).
+var combosSources = []string{
+	"https://raw.githubusercontent.com/nontechno/color/main/" + combosFile,
+	"https://color.nontechno.com/" + combosFile, // backup
 }
 
 const (
@@ -85,8 +94,18 @@ func install(out io.Writer) error {
 	from := make([]string, len(installFiles))
 	for i, f := range installFiles {
 		var errs []string
-		for si, base := range sources {
-			url := base + f.dir + "/" + f.name
+		var urls []string
+		if f.palettes {
+			urls = combosSources
+		}
+		if len(urls) == 0 || os.Getenv("GOAT_INSTALL_URL") != "" {
+			urls = nil
+			for _, base := range sources {
+				urls = append(urls, base+f.dir+"/"+f.name)
+			}
+		}
+		for si, url := range urls {
+			base := url
 			data, err := download(client, url)
 			if err == nil {
 				err = checkInstallFile(f.name, data)
@@ -97,8 +116,8 @@ func install(out io.Writer) error {
 			}
 			errs = append(errs, url+": "+err.Error())
 			logger.Warn("install: download failed", "url", url, "err", err)
-			if si+1 < len(sources) {
-				fmt.Fprintf(out, "  %-24s %s: %v - trying %s\n", f.name, hostOf(base), err, hostOf(sources[si+1]))
+			if si+1 < len(urls) {
+				fmt.Fprintf(out, "  %-24s %s: %v - trying %s\n", f.name, hostOf(base), err, hostOf(urls[si+1]))
 			}
 		}
 		if got[i] == nil {
@@ -137,17 +156,13 @@ func install(out io.Writer) error {
 }
 
 // checkInstallFile makes sure a downloaded file is what its name says (an
-// error page served as "200 OK" isn't): a .color file must be a color list,
-// a .toml file valid TOML.
+// error page served as "200 OK" isn't): the palettes must be palettes, a
+// .toml file valid TOML.
 func checkInstallFile(name string, data []byte) error {
 	switch {
-	case strings.HasSuffix(name, ".color"):
-		for _, f := range paletteFiles {
-			if f.name == name {
-				if _, err := parseColorFile(data, f.role, f.tone); err != nil {
-					return fmt.Errorf("not a valid color file: %w", err)
-				}
-			}
+	case name == combosFile:
+		if _, _, err := parseCombos(data); err != nil {
+			return err
 		}
 	case strings.HasSuffix(name, ".toml"):
 		var v map[string]any

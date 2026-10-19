@@ -172,45 +172,27 @@ func (m *WM) readable(fg, bg color.Color) bool {
 }
 
 // fixText makes w's text color readable on its background, if it isn't:
-// the first readable text color for the background's tone, else the
-// terminal's own, else whichever shows best. It reports whether it changed
-// anything.
+// the terminal's own if that reads, else whichever of black and white
+// reads better. It reports whether it changed anything. (Palettes are
+// readable as they are: this is for colors set otherwise, e.g. in a
+// launch script.)
 func (m *WM) fixText(w *Window) bool {
 	if m.readable(w.fgColor, w.bgColor) {
 		return false
 	}
-	t := m.backgroundTone(w)
-	var list []namedColor
-	if p := m.palette; p != nil {
-		list = p.fgs[t]
-	}
-	for i, c := range list {
-		if m.readable(c.c, w.bgColor) {
-			w.fgColor, w.fgPick, w.fgTone = c.c, i+1, t
-			return true
-		}
-	}
+	w.pal = 0
 	if m.readable(nil, w.bgColor) {
-		w.fgColor, w.fgPick, w.fgTone = nil, 0, t
+		w.fgColor = nil
 		return true
 	}
-	bestPick, best := 0, m.textContrast(nil, w.bgColor)
-	for i, c := range list {
-		if cr := m.textContrast(c.c, w.bgColor); cr > best {
-			bestPick, best = i+1, cr
-		}
-	}
-	w.fgPick, w.fgTone, w.fgColor = bestPick, t, nil
-	if bestPick > 0 {
-		w.fgColor = list[bestPick-1].c
-	}
+	w.fgColor = blackOrWhite(w.bgColor)
 	return true
 }
 
-// textName names w's text color for the status bar.
+// textName names w's text color for messages.
 func (m *WM) textName(w *Window) string {
-	if p := m.palette; p != nil && w.fgPick > 0 && w.fgPick <= len(p.fgs[w.fgTone]) {
-		return p.fgs[w.fgTone][w.fgPick-1].name
+	if w.pal > 0 {
+		return m.comboName(w.pal-1) + "'s text color"
 	}
 	if w.fgColor == nil {
 		return "the terminal's own"

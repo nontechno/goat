@@ -79,7 +79,7 @@ func TestLearnConflictChoice(t *testing.T) {
 		t.Fatalf("conflicts %v", r.conflicts)
 	}
 	r.resolveConflict("alt+b", "alt+left") // move windows
-	r.resolveConflict("alt+f", "alt+f")    // keep the text color key
+	r.resolveConflict("alt+f", "alt+f")    // keep word right for programs
 	if r.profile.Remap["alt+b"] != "alt+left" || len(r.profile.Remap) != 1 {
 		t.Fatalf("remap %v", r.profile.Remap)
 	}
@@ -132,8 +132,8 @@ func TestTermProfileRoundTrip(t *testing.T) {
 	if _, ok, _ := readTermProfile(path, "unknown"); ok {
 		t.Fatal("a profile for an unknown terminal")
 	}
-	if readLocalHostname(path) != "friendly" {
-		t.Fatal("hostname lost")
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), `hostname = "friendly"`) {
+		t.Fatal("other lines of local.toml lost")
 	}
 }
 
@@ -156,7 +156,7 @@ func TestKeyFromKeystroke(t *testing.T) {
 // guesses step aside.
 func TestTermProfileInUse(t *testing.T) {
 	m, _, _, w := wmWithBackground(t)
-	m.palette = fullPalette(t)
+	paletteOnB(t, m)
 	m.optionArrows, m.arrowsLearn = true, true // as in macOS Terminal
 	emoji := false
 	m.applyTermProfile(termProfile{MacOptionKeys: "off", Emoji: &emoji, Remap: map[string]string{"alt+f": "alt+right"}})
@@ -164,10 +164,11 @@ func TestTermProfileInUse(t *testing.T) {
 		t.Fatalf("guesses still on: %v %v %v", m.optionArrows, m.arrowsLearn, m.macOption)
 	}
 	x := w.x
-	_ = m.handleKey(uv.Key{Code: 'b', Mod: uv.ModAlt}) // not remapped: background
-	if w.x != x || w.bgColor == nil {
-		t.Fatalf("Alt+b: x %d -> %d, bg %v", x, w.x, w.bgColor)
+	_ = m.handleKey(uv.Key{Code: 'b', Mod: uv.ModAlt}) // not remapped: a shortcut (palettes)
+	if w.x != x || m.palDlg == nil {
+		t.Fatalf("Alt+b: x %d -> %d, palettes %v", x, w.x, m.palDlg != nil)
 	}
+	m.closePalette(false)
 	_ = m.handleKey(uv.Key{Code: 'f', Mod: uv.ModAlt}) // remapped: move right
 	if w.x != x+1 {
 		t.Fatalf("Alt+f (learned Alt+Right): x %d -> %d", x, w.x)

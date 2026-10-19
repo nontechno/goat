@@ -17,13 +17,14 @@ const maxHostLabel = 32
 
 // localConfig is ~/.config/goat/local.toml: settings for this machine only,
 // kept apart from config.toml so that one can be shared between machines.
+//
+// (Host names, and the aliases shown for them, are in alias.toml: alias.go.)
 type localConfig struct {
-	Hostname string `toml:"hostname"` // the name shown in window frames
-	Hotkey   string `toml:"hotkey"`   // (not used yet)
+	Hotkey string `toml:"hotkey"` // (not used yet)
 
 	// The right end of the status bar: the clock, and the name of the host
-	// goat runs on ("hostname" above, else the system's). Both shown unless
-	// set to false.
+	// goat runs on (its alias from alias.toml, if it has one). Both shown
+	// unless set to false.
 	ShowClock      *bool `toml:"show_clock"`
 	ShowLaunchHost *bool `toml:"show_launch_host"`
 
@@ -32,6 +33,26 @@ type localConfig struct {
 	// wrap_lines on this machine. New windows (Alt+c) take the state of the
 	// window they were opened from.
 	WrapLines *bool `toml:"wrap_lines"`
+
+	// The size of new windows (Alt+c, launch script windows without a size
+	// option): "100x30" (columns x rows, the whole window, frame included,
+	// like a script's size option), or a share of the screen, "60%x50%"
+	// (the two can be mixed). Replaces config.toml's new_window_*_ratio.
+	NewWindowSize string `toml:"new_window_size"`
+
+	// Ask before quitting (Alt+q) while floating windows are open: true
+	// (the default) or false (quit at once).
+	ConfirmQuit *bool `toml:"confirm_quit"`
+
+	// Quit goat when the last floating window closes (its program exits, or
+	// Alt+x), leaving only the background shell. false by default. The
+	// events window doesn't count.
+	ExitOnLastWindow *bool `toml:"exit_on_last_window"`
+
+	// The style of the palette names in the palette dialog (Alt+t):
+	// Pedantic, Funny, Outrageous, Vulgar, Corporate, Geeky, Wholesome or
+	// Sports. Saved by the dialog.
+	PaletteLingo string `toml:"palette_lingo"`
 }
 
 // readLocalConfig reads local.toml (ok false if it is missing, unreadable
@@ -60,27 +81,13 @@ func localConfigPath() string {
 	return filepath.Join(dir, "local.toml")
 }
 
-// hostLabel is the host name shown in window frames (show_host): the
-// "hostname" from local.toml (trimmed, cut to 32 characters) if it sets
-// one; otherwise the system's host name. source says which ("local.toml" or
-// "system"; "" if neither gave a name).
-func hostLabel(localPath string) (name, source string) {
-	if n := readLocalHostname(localPath); n != "" {
-		return n, "local.toml"
-	}
+// systemHostName is the system's host name, cleaned ("" if unknown). What
+// is shown for it may be an alias (alias.toml [host]; WM.showHost).
+func systemHostName() string {
 	if n, err := os.Hostname(); err == nil {
-		if n = cleanHostName(n); n != "" {
-			return n, "system"
-		}
+		return cleanHostName(n)
 	}
-	return "", ""
-}
-
-// readLocalHostname returns the cleaned "hostname" from local.toml ("" if
-// the file is missing, unreadable, not valid TOML or sets no name).
-func readLocalHostname(path string) string {
-	lc, _ := readLocalConfig(path)
-	return cleanHostName(lc.Hostname)
+	return ""
 }
 
 // barRight is what the right end of the status bar shows (local.toml).
@@ -96,11 +103,7 @@ func readBarRight(path string) barRight {
 	lc, _ := readLocalConfig(path)
 	b := barRight{clock: lc.ShowClock == nil || *lc.ShowClock}
 	if lc.ShowLaunchHost == nil || *lc.ShowLaunchHost {
-		if n := cleanHostName(lc.Hostname); n != "" {
-			b.host = n
-		} else {
-			b.host, _ = hostLabel("")
-		}
+		b.host = systemHostName() // (its alias is shown: render.go)
 	}
 	return b
 }
@@ -144,7 +147,7 @@ func cleanHostName(s string) string {
 // the name is shortened (keeping at least 4 columns) or left out; it never
 // covers the wrap indicator.
 func (m *WM) drawHost(scr uv.Screen, w *Window, st uv.Style) {
-	if !(m.showIdent() || m.cfg.ShowGit) || w.background || w.frame == frameNone || m.isEvents(w) {
+	if !(m.showIdent() || m.cfg.ShowGit) || w.background || w.frame == frameNone || m.isPanel(w) {
 		return
 	}
 	name := m.frameLabel(w)

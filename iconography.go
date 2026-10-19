@@ -73,6 +73,26 @@ const (
 	dialogBottomRight = '╯'
 )
 
+// The palette dialog (Alt+t; paldlg.go): its box is drawn with the frame
+// lines above; these join its columns, and the double box frames the
+// chosen palette:
+//
+//	╭───────theme─┬─────────────────────────palette─╮
+//	│ dark        │ Minty Fresh Void │ Pea Soup …    │
+//	│ in-between  │ Coral Reef Check ╔═══════════════╗
+//	│ light       │ Boiled Lobster … ║ Twilight Hug  ║
+//	├───────lingo─┤ …                ╚═══════════════╝
+const (
+	dialogTeeDown = '┬' // the top line, where the columns meet
+	dialogTeeUp   = '┴' // the bottom line
+	paletteTL     = '╔' // the chosen palette's frame
+	paletteTR     = '╗'
+	paletteBL     = '╚'
+	paletteBR     = '╝'
+	paletteH      = '═'
+	paletteV      = '║'
+)
+
 // The selected button in the quit dialog: "> Quit <" (dialog.go
 // buttonCells); the other button gets spaces of the same width.
 const (
@@ -91,7 +111,8 @@ const (
 // ---- status bar (render.go drawStatus) --------------------------------------
 
 // Window tabs: " 2:vim* " for a pinned window (Alt+w), " 👻3:htop " for one
-// hidden with Alt+0 (minimize.go).
+// hidden with Alt+0 (minimize.go). The ghost also marks a hidden window in
+// the inventory window (F3; inventory.go inventoryFlags).
 const (
 	pinnedSymbol = "*"
 	ghost        = "👻"
@@ -103,7 +124,8 @@ const unseenEventsSymbol = "!"
 
 // ---- text ------------------------------------------------------------------
 
-// ellipsis marks text cut to fit: "abc…" (render.go fitStart), "…/src/goat"
+// ellipsis marks text cut to fit: "abc…" (render.go fitStart; also every
+// line of the status and inventory windows, info.go, inventory.go), "…/src/goat"
 // (fitEnd: the status bar directory), a long notification or ignored status
 // report in the events window (events.go cleanEventText, status.go
 // statusRaw).

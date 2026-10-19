@@ -45,19 +45,18 @@ func TestVisibleOnFixesInvisibleColors(t *testing.T) {
 	}
 }
 
-// Every background in the shipped color files gets readable borders and
-// labels from the default theme, with the unfocused border fainter.
+// Every palette's background gets readable borders and labels from the
+// default theme, with the unfocused border fainter.
 func TestBorderColorsOnPaletteBackgrounds(t *testing.T) {
-	p, warns := loadPalette("colors")
-	if p == nil {
-		t.Skip("no colors/ directory")
-	}
-	if len(warns) > 0 {
-		t.Fatal(warns)
-	}
+	s := testCombos(t)
 	th := DefaultConfig().Theme
 	m := &WM{}
-	for _, bg := range p.bgs {
+	for i := range s.all {
+		c := &s.all[i]
+		bg := struct {
+			name, tone string
+			c          color.Color
+		}{c.names[0], comboThemes[c.theme], s.bg(c)}
 		lb := luminance(bg.c)
 		for _, c := range []struct {
 			role string

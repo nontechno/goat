@@ -43,8 +43,10 @@ func learnSteps(cfg *Config) []learnStep {
 	k := cfg.Keys
 	return []learnStep{
 		{"alt+" + k.NewWindow, "Alt+" + k.NewWindow + " (new window)", "Option+" + k.NewWindow},
-		{"alt+" + k.CycleBackground, "Alt+" + k.CycleBackground + " (background color)", "Option+" + k.CycleBackground},
-		{"alt+" + k.CycleForeground, "Alt+" + k.CycleForeground + " (text color)", "Option+" + k.CycleForeground},
+		// Not goat's keys, but what Option+Left / Option+Right may be
+		// mistaken for: word left / right in a shell.
+		{"alt+b", "Alt+b (word left, in a shell)", "Option+b"},
+		{"alt+f", "Alt+f (word right, in a shell)", "Option+f"},
 		{"alt+left", "Alt+Left (move window left)", "Option+←"},
 		{"alt+right", "Alt+Right (move window right)", "Option+→"},
 		{"alt+up", "Alt+Up (move window up)", "Option+↑"},

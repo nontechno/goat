@@ -8,7 +8,6 @@ import (
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // The example script2.txt (Windows line endings, a #! line, comments,
@@ -157,7 +156,7 @@ func wmForScript(t *testing.T) *WM {
 	cfg.Shell = "/bin/sh"
 	m := newWM(cfg, nil, 120, 40)
 	m.dir = t.TempDir()
-	m.palette = fullPalette(t)
+	m.combos = testCombos(t)
 	t.Cleanup(m.closeAll)
 	return m
 }
@@ -247,9 +246,10 @@ option: theme: light
 	if a.w != 60 || a.h != 12 || a.x != 5 || a.y != 3 {
 		t.Fatalf("geometry %d,%d %dx%d", a.x, a.y, a.w, a.h)
 	}
-	// theme: light: the light backgrounds in turn (Snow, then Ivory).
-	if a.bgColor != ansi.IndexedColor(231) || b.bgColor != ansi.IndexedColor(230) {
-		t.Fatalf("theme backgrounds %v %v", a.bgColor, b.bgColor)
+	// theme: light: the light palettes, one background after another.
+	light := m.combos.byTheme[2]
+	if a.pal != light[0]+1 || b.pal != light[3]+1 || a.bgColor == b.bgColor {
+		t.Fatalf("theme palettes %d %d (%v %v)", a.pal, b.pal, a.bgColor, b.bgColor)
 	}
 	if !m.readable(a.fgColor, a.bgColor) {
 		t.Fatalf("unreadable text %v on %v", a.fgColor, a.bgColor)

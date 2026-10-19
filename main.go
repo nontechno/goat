@@ -84,12 +84,6 @@ func main() {
 		}
 		return
 	}
-	// The color palette (the .color files) lives next to the config.
-	if dir, err := configDir(); err == nil {
-		var pw []string
-		cfg.palette, pw = loadPalette(dir)
-		warns = append(warns, pw...)
-	}
 	if w, closeLog := setupLog(cfg); true {
 		defer closeLog()
 		if w != "" {
@@ -215,12 +209,25 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	if dw != "" {
 		warns = append(warns, dw)
 	}
+	wrapFromConfig := cfg.WrapLines
 	if lc, ok := readLocalConfig(localPath); ok && lc.WrapLines != nil {
 		cfg.WrapLines = *lc.WrapLines // this machine's starting state (local.toml)
 		logger.Info("wrap_lines from local.toml", "wrap_lines", cfg.WrapLines)
 	}
 	m := newWM(cfg, warns, cols, rows)
 	m.localPath, m.desk, m.deskKnown = localPath, desk, deskKnown
+	m.cfgPath = cfgPath
+	m.wrapFromConfig = &wrapFromConfig
+	if lc, ok := readLocalConfig(localPath); ok {
+		var lw []string
+		m.local, lw = readLocalOpts(lc)
+		for _, w := range lw {
+			m.logEvent(nil, evConfig, w)
+			logger.Warn("config", "msg", w)
+		}
+		logger.Info("local.toml settings", "new_window_size", lc.NewWindowSize,
+			"confirm_quit", m.local.confirmQuit, "exit_on_last_window", m.local.exitOnLastWindow)
+	}
 	m.bar, m.barChecked = readBarRight(localPath), time.Now()
 	termID := terminalID()
 	if prof, ok, pw := readTermProfile(localPath, termID); ok {
@@ -229,17 +236,32 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	} else if pw != "" {
 		m.logEvent(nil, evConfig, pw)
 	}
-	if p := m.palette; p != nil {
-		logger.Info("colors", "backgrounds", len(p.bgs),
-			"text_for_dark", len(p.fgs[toneDark]), "text_for_light", len(p.fgs[toneLight]))
+	if dir, err := configDir(); err == nil { // palettes (combos.go) and goat's own windows (system.go)
+		var cw []string
+		m.combos, cw = loadCombos(dir)
+		for _, w := range cw {
+			m.logEvent(nil, evConfig, w)
+			logger.Warn("palettes", "msg", w)
+		}
+		if m.combos != nil {
+			logger.Info("palettes", "count", len(m.combos.all), "true_color", m.combos.trueColor)
+		}
+		m.sys.path = filepath.Join(dir, systemFile)
+		m.loadSystem(time.Now())
 	}
+	if lc, ok := readLocalConfig(localPath); ok && lc.PaletteLingo != "" {
+		if i := lingoIndex(lc.PaletteLingo); i >= 0 {
+			m.lingo = i
+		}
+	}
+	m.alias.path = aliasPath() // alias.toml: host, directory, repo, branch aliases
+	m.loadAliases(time.Now())
 	if cfg.ShowHost || cfg.ShowUser {
-		var source string
-		m.host, source = hostLabel(localPath)
+		m.host = systemHostName()
 		m.user = currentUserName()
 		m.hostChecked = time.Now()
 		m.identOn = true
-		logger.Info("identity for window frames", "user", m.user, "host", m.host, "host_source", source,
+		logger.Info("identity for window frames", "user", m.user, "host", m.host, "shown_as", m.showHost(m.host),
 			"show_user", cfg.ShowUser, "show_host", cfg.ShowHost)
 	}
 	m.dir, _ = os.Getwd()

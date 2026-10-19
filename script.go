@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"image/color"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -42,8 +41,9 @@ type appSpec struct {
 	title      string
 	run        string
 	wrap       *bool
-	theme      string // "dark" / "light": a background of that tone
-	bg, fg     string // a .color name, palette number or "#rrggbb"
+	theme      string // "dark" / "in-between" / "light": a palette of that theme
+	palette    string // a palette by name (any lingo) or id
+	bg, fg     string // a palette number (0-255), "#rrggbb" or "default"
 	frame      *frameStyle
 	pin, focus bool
 	cols, rows int // window size (0: the usual)
@@ -63,7 +63,7 @@ const (
 )
 
 // scriptOptions describes the "option:" lines, for messages.
-const scriptOptions = "wrap, theme, bg, fg, frame, pin, focus, size, pos, hold"
+const scriptOptions = "wrap, palette, theme, bg, fg, frame, pin, focus, size, pos, hold"
 
 // loadScript reads and parses a launch script. A file that can't be read is
 // an error; problems in it are warnings (the apps that make sense still
@@ -212,11 +212,13 @@ func (a *appSpec) setOption(s string) error {
 		a.wrap = &b
 	case "theme":
 		switch v := strings.ToLower(val); v {
-		case "dark", "light":
+		case "dark", "light", "between", "in-between":
 			a.theme = v
 		default:
-			return fmt.Errorf("want dark or light")
+			return fmt.Errorf("want dark, in-between or light")
 		}
+	case "palette":
+		a.palette = val
 	case "bg", "background":
 		a.bg = val
 	case "fg", "text", "foreground":
@@ -277,7 +279,7 @@ func (a *appSpec) setOption(s string) error {
 func (m *WM) launchApps(apps []appSpec, name string) {
 	var focus *Window
 	opened := 0
-	toneNext := map[tone]int{} // theme: dark / light take turns through their backgrounds
+	themeNext := map[int]int{} // theme: each window of a theme gets the next background
 	for _, a := range apps {
 		where := fmt.Sprintf("%s:%d", name, a.line)
 		problem := func(f string, args ...any) {
@@ -313,7 +315,7 @@ func (m *WM) launchApps(apps []appSpec, name string) {
 		}
 		opened++
 		w.pinned = a.pin
-		if msg := m.scriptColors(w, a, toneNext); msg != "" {
+		if msg := m.scriptColors(w, a, themeNext); msg != "" {
 			problem("%s", msg)
 		}
 		m.applyHostColors(w)
@@ -333,82 +335,69 @@ func (m *WM) launchApps(apps []appSpec, name string) {
 	m.dirty = true
 }
 
-// scriptColors gives w the colors its app asks for: "theme" a background of
-// that tone (the next one for each window that asks), "bg" / "fg" a .color
-// name, palette number or "#rrggbb". Without any, w has the colors a new
-// window gets (new_window_next_colors). It returns a problem to report.
-func (m *WM) scriptColors(w *Window, a appSpec, toneNext map[tone]int) string {
+// scriptColors gives w the colors its app asks for: "palette" a palette
+// by name or id, "theme" a palette of that theme (the next background for
+// each window that asks), "bg" / "fg" a palette number (0-255),
+// "#rrggbb" or "default". Without any, w has the colors a new window gets
+// (new_window_next_colors). It returns a problem to report.
+func (m *WM) scriptColors(w *Window, a appSpec, themeNext map[int]int) string {
 	var problems []string
-	p := m.palette
-	if a.theme != "" {
-		t := map[string]tone{"dark": toneDark, "light": toneLight}[a.theme]
-		var of []namedColor
-		if p != nil {
-			for _, c := range p.bgs {
-				if c.tone == t {
-					of = append(of, c)
-				}
-			}
-		}
-		if len(of) == 0 {
-			problems = append(problems, fmt.Sprintf("theme: no %s backgrounds (the .color files: goat -install)", a.theme))
+	s := m.combos
+	if a.palette != "" {
+		if i := s.find(a.palette); i >= 0 {
+			m.setCombo(w, i)
+		} else if s == nil {
+			problems = append(problems, "palette: no palettes ("+combosFile+": goat -install)")
 		} else {
-			c := of[toneNext[t]%len(of)]
-			toneNext[t]++
-			w.bgColor, w.bgPick = c.c, m.bgPosition(c.c)
-			w.fgColor, w.fgPick, w.fgTone = nil, 0, t
+			problems = append(problems, fmt.Sprintf("palette: no palette named %q", a.palette))
+		}
+	} else if a.theme != "" {
+		t := comboThemeIndex(a.theme)
+		if s == nil || len(s.byTheme[t]) == 0 {
+			problems = append(problems, fmt.Sprintf("theme: no %s palettes (%s: goat -install)", a.theme, combosFile))
+		} else {
+			list := s.byTheme[t]
+			// One background after another, then the next text color.
+			n := themeNext[t]
+			themeNext[t]++
+			p := (n*3)%len(list) + (n*3/len(list))%3
+			m.setCombo(w, list[p%len(list)])
 		}
 	}
 	if a.bg != "" {
-		if c, err := m.namedColor(a.bg, true); err != nil {
-			problems = append(problems, "bg: "+err.Error())
+		if c, err := parseColorString(a.bg); err != nil {
+			problems = append(problems, fmt.Sprintf("bg: %q isn't a color (0-255, \"#rrggbb\", default)", a.bg))
 		} else {
-			w.bgColor, w.bgPick = c, max(m.bgPosition(c), 0)
+			w.bgColor, w.pal = c, 0
 		}
 	}
 	if a.fg != "" {
-		if c, err := m.namedColor(a.fg, false); err != nil {
-			problems = append(problems, "fg: "+err.Error())
+		if c, err := parseColorString(a.fg); err != nil {
+			problems = append(problems, fmt.Sprintf("fg: %q isn't a color (0-255, \"#rrggbb\", default)", a.fg))
 		} else {
-			w.fgColor, w.fgTone = c, m.backgroundTone(w)
-			w.fgPick = 0
-			if p != nil {
-				w.fgPick = max(colorPosition(c, p.fgs[w.fgTone]), 0)
-			}
+			w.fgColor, w.pal = c, 0
 		}
 	}
-	if a.theme == "" && a.bg == "" && a.fg == "" {
+	if a.palette == "" && a.theme == "" && a.bg == "" && a.fg == "" {
 		return "" // openWindow already gave it a new window's colors
 	}
-	asked := a.fg != ""
-	if m.fixText(w) && asked {
+	if (a.bg != "" || a.fg != "") && m.fixText(w) && a.fg != "" {
 		problems = append(problems, fmt.Sprintf("fg: %s wouldn't show on that background; using %s", a.fg, m.textName(w)))
 	}
+	m.applyHostColors(w)
 	return strings.Join(problems, "; ")
 }
 
-// namedColor finds a color by its .color file name (any case; backgrounds
-// for bg, text colors for fg), or reads it as a palette number, "#rrggbb"
-// or "default".
-func (m *WM) namedColor(s string, background bool) (color.Color, error) {
-	if p := m.palette; p != nil {
-		lists := [][]namedColor{p.fgs[toneDark], p.fgs[toneLight]}
-		if background {
-			lists = [][]namedColor{p.bgs}
-		}
-		for _, l := range lists {
-			for _, c := range l {
-				if strings.EqualFold(c.name, s) {
-					return c.c, nil
-				}
-			}
-		}
+// comboThemeIndex is a theme's index by name (dark, between or
+// in-between, light); 0 if unknown.
+func comboThemeIndex(name string) int {
+	switch strings.ToLower(name) {
+	case "between", "in-between", "inbetween":
+		return 1
+	case "light":
+		return 2
 	}
-	c, err := parseColorString(s)
-	if err != nil {
-		return nil, fmt.Errorf("%q is neither a color name from the .color files nor a color (0-255, \"#rrggbb\")", s)
-	}
-	return c, nil
+	return 0
 }
 
 // exitSummary says how a held window's program ended.

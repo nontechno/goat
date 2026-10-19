@@ -83,7 +83,8 @@ type WM struct {
 	pasteBuf []byte
 
 	hostFg, hostBg color.Color // host terminal default colors, once known
-	palette        *palette    // the .color files (nil: no window colors)
+	combos         *comboSet   // palettes (combos.go; nil: none)
+	lingo          int         // the palette names' style (comboLingos)
 	// local.toml, and the background window's colors saved there (desk;
 	// deskKnown: there are some). No localPath: nothing is saved.
 	localPath string
@@ -99,11 +100,38 @@ type WM struct {
 
 	ev events // the events window (events.go)
 
-	status      string      // status bar message
-	statusUntil time.Time   // when it disappears
-	tabs        []tab       // status bar tab positions, for mouse clicks
-	quitAsk     *quitDialog // the "Quit goat?" dialog, while it is up
-	lastMinute  int         // clock redraw
+	status      string          // status bar message
+	statusUntil time.Time       // when it disappears
+	tabs        []tab           // status bar tab positions, for mouse clicks
+	quitAsk     *quitDialog     // the "Quit goat?" dialog, while it is up
+	settings    *settingsDialog // the settings dialog (Alt+o), while it is up
+	// config.toml's wrap_lines, before local.toml's (the settings dialog's
+	// default); nil if local.toml didn't change it.
+	wrapFromConfig *bool
+	lastMinute     int // clock redraw
+
+	// Settings from local.toml (localopts.go): new window size, confirm
+	// quit, exit on last window.
+	local localOpts
+	// Aliases from alias.toml (alias.go), re-read when the file changes.
+	alias aliasState
+	// The help window (F1; help.go), the status window (F2; info.go) and
+	// the inventory (F3; inventory.go).
+	help helpState
+	info infoState
+	inv  inventoryState
+	// system.toml: their titles, keys, palettes, sizes and places
+	// (system.go).
+	sys systemState
+	// The palette dialog (Alt+t; paldlg.go), while it is up.
+	palDlg *paletteDialog
+	// Process samples for the status and inventory windows (procinfo.go),
+	// and goat's own CPU use.
+	procs procSampler
+	cpu   cpuMeter
+	// When goat started, and the config.toml it read ("" if none).
+	started time.Time
+	cfgPath string
 
 	dirty bool
 	quit  bool
@@ -184,11 +212,11 @@ func newWM(cfg *Config, warnings []string, cols, rows int) *WM {
 		// the PTY fills and slows them down (like any terminal), instead of
 		// megabytes piling up here (which would make Ctrl+C take effect late).
 		nextID: 1, out: make(chan ptyMsg, 16),
-		escFire: make(chan struct{}, 1), dirty: true,
+		escFire: make(chan struct{}, 1), dirty: true, started: time.Now(),
 		bar:       barRight{clock: true}, // main reads local.toml's settings
+		local:     defaultLocalOpts(),
 		identOut:  make(chan identMsg, 16),
 		home:      os.Getenv("HOME"),
-		palette:   cfg.palette,
 		macOption: macOptionOn(cfg.MacOptionKeys, runtime.GOOS, os.Getenv("TERM_PROGRAM"), os.Getenv("LC_TERMINAL")),
 	}
 	m.optionArrows, m.arrowsLearn = macOptionArrowsOn(cfg.MacOptionArrows, os.Getenv("TERM_PROGRAM"))
@@ -236,7 +264,7 @@ func (m *WM) focus(w *Window) {
 // titles and used by Alt+1..9). Stable, unlike the z-order. The events
 // window has no number, so showing it doesn't renumber the others.
 func (m *WM) byID() []*Window {
-	ws := slices.DeleteFunc(slices.Clone(m.windows), func(w *Window) bool { return w.background || m.isEvents(w) })
+	ws := slices.DeleteFunc(slices.Clone(m.windows), func(w *Window) bool { return w.background || m.isPanel(w) })
 	slices.SortFunc(ws, func(a, b *Window) int { return a.id - b.id })
 	return ws
 }
@@ -259,14 +287,19 @@ func (m *WM) cycle() []*Window {
 	if m.eventsShown() {
 		ws = append(ws, m.ev.win)
 	}
+	for _, w := range []*Window{m.help.win, m.info.win, m.inv.win} {
+		if m.panelShown(w) {
+			ws = append(ws, w)
+		}
+	}
 	return ws
 }
 
 // tabName is a window's name in its title and status bar tab: "2:vim",
 // or "events".
 func (m *WM) tabName(w *Window) string {
-	if m.isEvents(w) {
-		return "events"
+	if name := m.panelName(w); name != "" { // system.toml's title, if set
+		return m.panelTitle(name)
 	}
 	return fmt.Sprintf("%d:%s", m.number(w), w.displayTitle(m.cfg.TitleSource))
 }
@@ -310,7 +343,7 @@ func (m *WM) newWindow() error {
 // window it is opened from does (the active one, the background shell
 // included); wrap_lines when there is none, or it is the events window.
 func (m *WM) newWindowWrap() bool {
-	if f := m.focused; f != nil && !f.closed && !m.isEvents(f) {
+	if f := m.focused; f != nil && !f.closed && !m.isPanel(f) {
 		return !f.nowrap
 	}
 	return m.cfg.WrapLines
@@ -337,8 +370,7 @@ func (m *WM) openWindow(o openSpec) (*Window, error) {
 	decorated := !m.cfg.DisableMouse
 	_, _, t, b := framePads(false, o.frame, decorated)
 	minH := max(l.MinWindowRows, t+b+1)
-	w := clamp(int(float64(m.cols)*l.NewWindowWidthRatio), m.minW(), max(m.cols, m.minW()))
-	h := clamp(int(float64(area)*l.NewWindowHeightRatio), minH, max(area, minH))
+	w, h := m.newWindowSize(minH, area) // local.toml new_window_size, or the ratios
 	if o.cols > 0 {
 		w = clamp(o.cols, m.minW(), max(m.cols, m.minW()))
 	}
@@ -410,6 +442,14 @@ func (m *WM) newWindowDir() string {
 
 // remove drops a window (closed by the user or exited) and refocuses.
 func (m *WM) remove(w *Window) {
+	hadFloating := len(m.floatingWindows()) > 0
+	defer func() {
+		// local.toml exit_on_last_window: the last floating window is gone.
+		if m.local.exitOnLastWindow && hadFloating && len(m.floatingWindows()) == 0 && !m.quit {
+			logger.Info("last window closed: quitting (local.toml exit_on_last_window)")
+			m.quit = true
+		}
+	}()
 	i := slices.Index(m.windows, w)
 	if i < 0 {
 		return
@@ -492,7 +532,7 @@ func (m *WM) resizeScreen(cols, rows int) {
 // ---- keyboard --------------------------------------------------------------
 
 func (m *WM) run(a action) error {
-	defer m.saveDesktop() // Alt+b / Alt+f / Alt+s may change its colors
+	defer m.saveDesktop() // Alt+s may change its colors (the palette dialog saves its own)
 	switch a {
 	case actNewWindow:
 		return m.newWindow()
@@ -517,6 +557,8 @@ func (m *WM) run(a action) error {
 			m.setStatus("the background shell can't be closed: type exit, or Alt+"+m.cfg.Keys.Quit+" to quit", 4*time.Second)
 		case m.isEvents(w):
 			m.setStatus("Alt+"+m.cfg.Keys.ShowEvents+" hides the events window", 3*time.Second)
+		case m.isPanel(w):
+			m.hidePanel(w) // (as F1, F2, F3 do)
 		default:
 			m.remove(w)
 		}
@@ -536,10 +578,8 @@ func (m *WM) run(a action) error {
 		m.resizeFocused(0, -1)
 	case actResizeDown:
 		m.resizeFocused(0, 1)
-	case actCycleBackground:
-		m.cycleBackground()
-	case actCycleForeground:
-		m.cycleForeground()
+	case actPalette:
+		m.openPalette() // paldlg.go
 	case actToggleWrap:
 		if w := m.focused; w != nil {
 			m.clearSelectionIn(w) // its columns may not exist afterwards
@@ -562,6 +602,8 @@ func (m *WM) run(a action) error {
 		m.swapWithBackground()
 	case actRepaint:
 		m.repaint()
+	case actSettings:
+		m.openSettings()
 	case actPinWindow:
 		if w := m.focused; w != nil && !w.background {
 			w.pinned = !w.pinned
@@ -575,6 +617,10 @@ func (m *WM) run(a action) error {
 // shortcut runs the window-manager action for an Alt key, if it is one.
 // It reports whether the key was consumed.
 func (m *WM) shortcut(k uv.Key) (bool, error) {
+	if name := m.panelForKey(k); name != "" { // an Alt key from system.toml
+		m.togglePanel(name)
+		return true, nil
+	}
 	shift := k.Mod.Contains(uv.ModShift)
 	switch k.Code {
 	case uv.KeyLeft:
@@ -672,8 +718,22 @@ func (m *WM) handleKey(k uv.Key) error {
 			k = k2
 		}
 	}
+	if m.settings != nil && !m.pasting {
+		m.settingsKey(k)
+		return nil
+	}
 	if m.quitAsk != nil && !m.pasting {
 		m.quitDialogKey(k)
+		return nil
+	}
+	if m.palDlg != nil && !m.pasting {
+		m.paletteKey(k)
+		return nil
+	}
+	// goat's own windows: F1 help, F2 status, F3 inventory, or the keys
+	// system.toml gives them (system.go).
+	if name := m.panelForKey(k); name != "" && !m.pasting {
+		m.togglePanel(name)
 		return nil
 	}
 	if m.pasting { // raw paste without bracketed-paste support upstream
@@ -726,8 +786,8 @@ func (m *WM) handleKey(k uv.Key) error {
 		return nil
 	}
 
-	if w := m.focused; m.isEvents(w) {
-		m.eventsKey(w, k) // scrolling keys; there is no program to type to
+	if w := m.focused; m.isPanel(w) {
+		m.panelKey(w, k) // scrolling keys; there is no program to type to
 		return nil
 	}
 	if w := m.focused; w != nil {
@@ -773,11 +833,15 @@ func (m *WM) sendFocused(b []byte) {
 }
 
 func (m *WM) paste(text string) {
-	if m.quitAsk != nil {
+	if m.settings != nil {
+		m.settingsPaste(text)
 		return
 	}
-	if m.isEvents(m.focused) {
-		m.setStatus("not pasted: the events window takes no input", 3*time.Second)
+	if m.quitAsk != nil || m.palDlg != nil {
+		return
+	}
+	if m.isPanel(m.focused) {
+		m.setStatus("not pasted: the "+m.tabName(m.focused)+" window takes no input", 3*time.Second)
 		return
 	}
 	if w := m.focused; w != nil && !w.closed && text != "" {
@@ -841,8 +905,16 @@ func (m *WM) handleMouse(ev uv.MouseEvent) {
 	if m.cfg.DisableMouse {
 		return
 	}
+	if m.settings != nil {
+		m.settingsMouse(ev)
+		return
+	}
 	if m.quitAsk != nil {
 		m.quitDialogMouse(ev)
+		return
+	}
+	if m.palDlg != nil {
+		m.paletteMouse(ev)
 		return
 	}
 	mo := ev.Mouse()
@@ -877,6 +949,9 @@ func (m *WM) handleMouse(ev uv.MouseEvent) {
 			// Select text; Shift overrides programs that use the mouse.
 			if mo.Button == uv.MouseLeft {
 				m.startSelection(w, x, y)
+				if m.isInventory(w) { // choose the window clicked (inventory.go)
+					m.inventoryClick(m.sel.anchor.line)
+				}
 				return
 			}
 		case mo.Button != uv.MouseLeft:
@@ -1022,56 +1097,30 @@ func (m *WM) handlePty(msg ptyMsg) {
 
 // initBackground starts a window in the terminal's default colors.
 func (m *WM) initBackground(w *Window) {
-	w.bgColor, w.fgColor = nil, nil
-	w.bgPick, w.fgPick = 0, 0
+	w.bgColor, w.fgColor, w.pal = nil, nil, 0
 }
 
-// noPalette is the message for Alt+b / Alt+f without the .color files.
-const noPalette = "no window colors: the .color files aren't in the config folder (goat -install fetches them)"
-
-// cycleBackground (Alt+b) gives the active window the next background from
-// the .color files.
-func (m *WM) cycleBackground() {
-	w := m.focused
-	if w == nil {
-		return
-	}
-	if p := m.palette; p == nil || len(p.bgs) == 0 {
-		m.setStatus(noPalette, 5*time.Second)
-		return
-	}
-	m.nextPaletteBackground(w)
-}
-
-// sameColorsAs gives w from's colors (background and text, and where they
-// are in the .color lists, so Alt+b / Alt+f go on from there). With no from,
-// w keeps its colors.
+// sameColorsAs gives w from's colors (and palette). With no from, w keeps
+// its colors.
 func sameColorsAs(from, w *Window) {
 	if from == nil {
 		return
 	}
-	w.bgColor, w.fgColor = from.bgColor, from.fgColor
-	w.bgPick, w.fgPick, w.fgTone = from.bgPick, from.fgPick, from.fgTone
+	w.bgColor, w.fgColor, w.pal = from.bgColor, from.fgColor, from.pal
 }
 
-// nextColorsFrom gives w the background after from's, with a text color for
-// its tone: from's own if it suits, else the first one. Without the .color
-// files (or a from), w keeps its colors.
+// nextColorsFrom gives w the palette after from's: the next background of
+// its theme, with the text color in the same place. A from without a
+// palette passes on its colors as they are.
 func (m *WM) nextColorsFrom(from, w *Window) {
-	p := m.palette
-	if p == nil || len(p.bgs) == 0 || from == nil {
+	if from == nil {
 		return
 	}
-	w.bgPick = max(m.bgPosition(from.bgColor), 0)%len(p.bgs) + 1
-	bg := p.bgs[w.bgPick-1]
-	w.bgColor = bg.c
-	w.fgColor, w.fgPick, w.fgTone = nil, 0, bg.tone
-	if from.fgPick > 0 && from.fgTone == bg.tone {
-		w.fgColor, w.fgPick = from.fgColor, from.fgPick
-	} else if fgs := p.fgs[bg.tone]; len(fgs) > 0 {
-		w.fgColor, w.fgPick = fgs[0].c, 1
+	if from.pal == 0 || m.combos == nil {
+		sameColorsAs(from, w)
+		return
 	}
-	m.fixText(w)
+	m.setCombo(w, m.combos.nextCombo(from.pal-1))
 }
 
 // backgroundExited: like a terminal, quit when the background shell exits,
@@ -1123,6 +1172,17 @@ func (m *WM) tick(now time.Time) {
 	if m.refreshBarRight(now) {
 		m.dirty = true
 	}
+	if m.refreshAliases(now) {
+		m.dirty = true
+	}
+	if m.refreshSystem(now) { // system.toml (system.go)
+		m.dirty = true
+	}
+	if m.infoShown() || m.inventoryShown() { // status and inventory (F2, F3)
+		m.procs.request(now)
+		m.syncInfo(now)
+		m.syncInventory(now)
+	}
 	if m.identOn {
 		if m.refreshLocalIdent(now) {
 			m.dirty = true
@@ -1158,8 +1218,8 @@ func (m *WM) swapWithBackground() {
 	case fw.background:
 		m.setStatus("Alt+s swaps a floating window with the background: focus one first", 3*time.Second)
 		return
-	case m.isEvents(fw):
-		m.setStatus("the events window can't be swapped with the background", 3*time.Second)
+	case m.isPanel(fw):
+		m.setStatus("the "+m.tabName(fw)+" window can't be swapped with the background", 3*time.Second)
 		return
 	}
 	fi, bi := slices.Index(m.windows, fw), slices.Index(m.windows, bg)
@@ -1201,12 +1261,12 @@ func (m *WM) swapWithBackground() {
 	m.dirty = true
 }
 
-// backgroundTone is the tone of w's background: from the palette, or for
-// the terminal's own background, from the color the terminal reported
-// (dark if it didn't).
+// backgroundTone is the tone of w's background: its palette's theme, its
+// color, or for the terminal's own background, the color the terminal
+// reported (dark if it didn't).
 func (m *WM) backgroundTone(w *Window) tone {
-	if p := m.palette; p != nil && w.bgPick > 0 && w.bgPick <= len(p.bgs) {
-		return p.bgs[w.bgPick-1].tone
+	if c := m.combos.get(w.pal - 1); c != nil {
+		return m.combos.tone(c)
 	}
 	if w.bgColor != nil {
 		return toneOf(w.bgColor)
@@ -1215,151 +1275,4 @@ func (m *WM) backgroundTone(w *Window) tone {
 		return toneOf(m.hostBg)
 	}
 	return toneDark
-}
-
-// colorPosition is where c is in a circle of colors: 0 for the terminal's
-// own (nil), i for the i-th of list, -1 if it isn't there. It goes by the
-// color itself (whatever the window's remembered pick says), and a color
-// that looks the same counts.
-func colorPosition(c color.Color, list []namedColor) int {
-	if c == nil {
-		return 0
-	}
-	for i, x := range list {
-		if looksSame(x.c, c) {
-			return i + 1
-		}
-	}
-	return -1
-}
-
-// bgPosition is where background c is in the circle Alt+b steps through.
-func (m *WM) bgPosition(c color.Color) int {
-	if m.palette == nil {
-		return colorPosition(c, nil)
-	}
-	return colorPosition(c, m.palette.bgs)
-}
-
-// nextPaletteBackground (Alt+b) gives w the next background: through the
-// dark ones, then the light ones, then back to the terminal's own. Its text
-// color stays as it is (Alt+f changes that).
-func (m *WM) nextPaletteBackground(w *Window) {
-	p := m.palette
-	// The backgrounds form a circle: the terminal's own, then each of the
-	// list. Go on from wherever w's current background is in it (one not
-	// in the list: from the start), to the next one that looks different
-	// (e.g. a black in the list is passed over when the terminal's own
-	// background is black too).
-	n := len(p.bgs) + 1
-	// What is on screen now, and would be (nil: the terminal's own, if it
-	// hasn't said which color that is).
-	seen := func(c color.Color) color.Color {
-		if c == nil {
-			return m.hostBg
-		}
-		return c
-	}
-	shown := seen(w.bgColor)
-	pos := max(m.bgPosition(w.bgColor), 0)
-	pick := -1
-	for i := 1; i < n; i++ {
-		cand := (pos + i) % n
-		var c color.Color
-		if cand > 0 {
-			c = p.bgs[cand-1].c
-		}
-		if a, b := seen(c), shown; (a == nil) != (b == nil) || !looksSame(a, b) {
-			pick = cand
-			break
-		}
-	}
-	if pick < 0 {
-		m.setStatus("no other background color", 3*time.Second)
-		return
-	}
-	w.bgPick = pick
-	msg := "background: the terminal's own"
-	w.bgColor = nil
-	if w.bgPick > 0 {
-		bg := p.bgs[w.bgPick-1]
-		w.bgColor = bg.c
-		msg = fmt.Sprintf("background %d/%d: %s (%s)", w.bgPick, len(p.bgs), bg.name, bg.tone)
-	}
-	if m.fixText(w) {
-		msg += " - text color changed to " + m.textName(w) + " (the old one wouldn't show)"
-	} else if t := m.backgroundTone(w); w.fgPick > 0 && w.fgTone != t {
-		msg += fmt.Sprintf(" - text color is one for %s backgrounds: Alt+f", w.fgTone)
-	}
-	m.applyHostColors(w) // programs asking for the colors get these
-	m.setStatus(msg, 3*time.Second)
-	m.dirty = true
-}
-
-// cycleForeground (Alt+f) gives w the next text color among those for the
-// tone of its background (dark or light), then back to the terminal's own.
-func (m *WM) cycleForeground() {
-	w := m.focused
-	if w == nil {
-		return
-	}
-	p := m.palette
-	if p == nil {
-		m.setStatus(noPalette, 5*time.Second)
-		return
-	}
-	t := m.backgroundTone(w)
-	list := p.fgs[t]
-	if len(list) == 0 {
-		m.setStatus(fmt.Sprintf("no text colors for %s backgrounds (%s-foreground.color)", t, t), 4*time.Second)
-		return
-	}
-	// The text colors form a circle too: the terminal's own, then the list.
-	// Go on from w's current text color (one not in the list: from the
-	// start) to the next that both shows on the background and looks
-	// different from the current one.
-	colorOf := func(i int) color.Color {
-		if i == 0 {
-			return nil
-		}
-		return list[i-1].c
-	}
-	n := len(list) + 1
-	seen := func(c color.Color) color.Color {
-		if c == nil {
-			return m.hostFg
-		}
-		return c
-	}
-	shown := seen(w.fgColor)
-	pos := max(colorPosition(w.fgColor, list), 0)
-	pick, skipped := -1, 0
-	for i := 1; i < n; i++ {
-		cand := (pos + i) % n
-		c := colorOf(cand)
-		if a, b := seen(c), shown; (a == nil) == (b == nil) && looksSame(a, b) {
-			continue
-		}
-		if !m.readable(c, w.bgColor) {
-			skipped++
-			continue
-		}
-		pick = cand
-		break
-	}
-	if pick < 0 {
-		m.setStatus("no other text color shows on this background", 3*time.Second)
-		return
-	}
-	w.fgPick, w.fgTone, w.fgColor = pick, t, colorOf(pick)
-	msg := "text color: the terminal's own"
-	if pick > 0 {
-		msg = fmt.Sprintf("text color %d/%d: %s (for %s backgrounds)", pick, len(list), list[pick-1].name, t)
-	}
-	if skipped > 0 {
-		msg += fmt.Sprintf(" - skipped %d that wouldn't show", skipped)
-	}
-	m.applyHostColors(w)
-	m.setStatus(msg, 3*time.Second)
-	m.dirty = true
 }

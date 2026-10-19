@@ -12,7 +12,7 @@ func TestSwapWithBackground(t *testing.T) {
 	m, bg, a, b := wmWithBackground(t) // b (id 2) is focused, at 8,3 20x6
 	_, _ = bg.emu.Write([]byte("BACKGROUND-APP"))
 	_, _ = b.emu.Write([]byte("FLOATING-APP"))
-	b.bgColor, b.fgColor, b.bgPick = ansi.IndexedColor(17), ansi.IndexedColor(230), 2
+	b.bgColor, b.fgColor, b.pal = ansi.IndexedColor(17), ansi.IndexedColor(230), 2
 	b.setWrap(false)
 	b.shellName, bg.shellName = "vim", "bash"
 	b.pinned = true
@@ -39,7 +39,7 @@ func TestSwapWithBackground(t *testing.T) {
 		t.Fatalf("order %v, focused %d", ids(m.windows), m.focused.id)
 	}
 	// Each program keeps its own state, and its terminal fits its new place.
-	if b.bgColor != ansi.IndexedColor(17) || b.bgPick != 2 || !b.nowrap || bg.nowrap {
+	if b.bgColor != ansi.IndexedColor(17) || b.pal != 2 || !b.nowrap || bg.nowrap {
 		t.Fatal("colors / wrap did not stay with the program")
 	}
 	for _, win := range []*Window{b, bg} {

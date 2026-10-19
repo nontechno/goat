@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -12,9 +11,6 @@ import (
 	"time"
 	"unicode"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/vt"
 	"github.com/rivo/uniseg"
 )
 
@@ -240,44 +236,13 @@ func (m *WM) toggleEvents() {
 
 // hideEvents takes the events window off screen; its place and contents
 // are kept for the next Alt+-.
-func (m *WM) hideEvents() {
-	w := m.ev.win
-	i := slices.Index(m.windows, w)
-	if i < 0 {
-		return
-	}
-	m.clearSelectionIn(w)
-	m.windows = slices.Delete(m.windows, i, i+1)
-	if m.drag.win == w {
-		m.drag = drag{}
-	}
-	if m.focused == w {
-		m.focused = nil
-		m.focus(m.topShown())
-	}
-	m.dirty = true
-}
+func (m *WM) hideEvents() { m.hidePanel(m.ev.win) }
 
 // newEventsWindow makes the window: a frame and an emulator holding the
 // list, no program. Centered, most of the width, up to 30 rows.
 func (m *WM) newEventsWindow() *Window {
-	area := m.areaH()
-	width := min(m.cols, max(min(m.cols-4, 100), m.cols*4/5))
-	height := min(area, max(min(area-2, 30), area*3/5))
-	w := &Window{
-		id: -1, x: (m.cols - width) / 2, y: (area - height) / 2, w: width, h: height,
-		decorated: !m.cfg.DisableMouse, frame: m.cfg.frame,
-		shellName: "events", nowrapW: m.cfg.NowrapWidth, nowrap: !m.cfg.WrapLines,
-		mouseModes: map[ansi.DECMode]bool{},
-		// no cursor, no input queue, no PTY
-	}
-	w.emu = vt.NewEmulator(w.emuWidth(w.contentW()), w.contentH())
-	w.emu.SetScrollbackSize(maxEvents + 100)
-	go func() { _, _ = io.Copy(io.Discard, w.emu) }() // replies go nowhere
-	m.initBackground(w)
-	m.applyHostColors(w)
+	w := m.newPanelWindow("events", maxEvents+100, placeCenter) // panels.go
 	m.ev.full, m.ev.changed = true, true
-	logger.Info("events window opened")
 	return w
 }
 
@@ -347,26 +312,6 @@ func eventSGR(e event, line string) string {
 		}
 	}
 	return line
-}
-
-// eventsKey handles a key for the focused events window: scrolling keys
-// scroll it; nothing is sent anywhere.
-func (m *WM) eventsKey(w *Window, k uv.Key) {
-	page := max(w.contentH()-1, 1)
-	switch k.Code {
-	case uv.KeyUp:
-		m.scrollWindow(w, 1)
-	case uv.KeyDown:
-		m.scrollWindow(w, -1)
-	case uv.KeyPgUp:
-		m.scrollWindow(w, page)
-	case uv.KeyPgDown:
-		m.scrollWindow(w, -page)
-	case uv.KeyHome:
-		m.scrollWindow(w, w.emu.ScrollbackLen())
-	case uv.KeyEnd:
-		m.scrollWindow(w, -w.scroll)
-	}
 }
 
 func kindWidth(e event) int {

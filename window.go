@@ -79,13 +79,12 @@ type Window struct {
 	onPrompt func(data []byte)
 	onReset  func()
 
-	bgColor color.Color // colors chosen with Alt+b (nil = terminal default)
+	bgColor color.Color // the window's colors (nil = the terminal's own)
 	fgColor color.Color //
-	// Palette picks (palette.go): 0 = the terminal's own color, n = the
-	// n-th background / the n-th text color for fgTone.
-	bgPick int
-	fgPick int
-	fgTone tone
+	// The palette they come from (Alt+t; combos.go): 1 + its index in
+	// the combinations file; 0: none (the terminal's colors, or colors
+	// set otherwise).
+	pal    int
 	closed bool
 
 	// Launch-script windows (goat -script): a fixed title, and whether the

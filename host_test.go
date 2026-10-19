@@ -9,54 +9,21 @@ import (
 	"time"
 )
 
-func TestHostLabel(t *testing.T) {
-	sys, _ := os.Hostname()
-	sys = cleanHostName(sys)
-	for _, tt := range []struct {
-		name     string
-		file     *string // nil = no local.toml
-		want     string
-		wantFrom string
-	}{
-		{"no file", nil, sys, "system"},
-		{"hostname set, trimmed", ptr("hostname = \"  my-box  \"\nhotkey = \"\"\n"), "my-box", "local.toml"},
-		{"CRLF file", ptr("# local\r\nhostname = \"win-box\"\r\n"), "win-box", "local.toml"},
-		{"cut to 32", ptr("hostname = \"" + strings.Repeat("x", 40) + "\"\n"), strings.Repeat("x", 32), "local.toml"},
-		{"control chars dropped", ptr("hostname = \"a\\u001b[31mb\\u0007\"\n"), "a[31mb", "local.toml"},
-		{"unicode kept", ptr("hostname = \"домашний-ПК 🐐\"\n"), "домашний-ПК 🐐", "local.toml"},
-		{"blank name", ptr("hostname = \"   \"\n"), sys, "system"},
-		{"no hostname key", ptr("hotkey = \"\"\n"), sys, "system"},
-		{"not TOML", ptr("hostname: box\n"), sys, "system"},
-		{"empty file", ptr(""), sys, "system"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "local.toml")
-			if tt.file != nil {
-				if err := os.WriteFile(path, []byte(*tt.file), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			got, from := hostLabel(path)
-			if got != tt.want || from != tt.wantFrom {
-				t.Errorf("got %q (%s), want %q (%s)", got, from, tt.want, tt.wantFrom)
-			}
-		})
+// The host name is the system's: a "hostname" in local.toml (the old way)
+// is ignored; aliases (alias.toml) change only what is shown.
+func TestSystemHostName(t *testing.T) {
+	sys := cleanHostName(must(os.Hostname()))
+	if got := systemHostName(); got != sys {
+		t.Errorf("got %q, want %q", got, sys)
 	}
-	// Unreadable local.toml (a directory here) falls back too.
-	dir := filepath.Join(t.TempDir(), "local.toml")
-	_ = os.Mkdir(dir, 0o755)
-	if got, from := hostLabel(dir); got != sys || from != "system" {
-		t.Errorf("directory as local.toml: %q (%s)", got, from)
+	path := filepath.Join(t.TempDir(), "local.toml")
+	_ = os.WriteFile(path, []byte("hostname = \"friendly\"\n"), 0o644)
+	if b := readBarRight(path); b.host != sys {
+		t.Errorf("local.toml hostname still used: %q", b.host)
 	}
 	// A long name is cut at 32 characters, not bytes.
 	if got := cleanHostName(strings.Repeat("é", 40)); len([]rune(got)) != 32 {
 		t.Errorf("cut by bytes: %q", got)
-	}
-	// ~/.hostname is no longer read.
-	home := t.TempDir()
-	_ = os.WriteFile(filepath.Join(home, ".hostname"), []byte("old-way\n"), 0o644)
-	if got, _ := hostLabel(filepath.Join(home, "missing.toml")); got == "old-way" {
-		t.Error("~/.hostname still read")
 	}
 }
 
@@ -136,7 +103,7 @@ func TestHostFileNotRegular(t *testing.T) {
 		t.Skip("no FIFOs here:", err)
 	}
 	done := make(chan string, 1)
-	go func() { n, _ := hostLabel(path); done <- n }()
+	go func() { done <- readBarRight(path).host }()
 	select {
 	case n := <-done:
 		if want := cleanHostName(must(os.Hostname())); n != want {
@@ -175,15 +142,15 @@ func TestIdentityFrameText(t *testing.T) {
 
 func TestBarRightSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "local.toml")
-	sys, _ := hostLabel("")
+	sys := systemHostName()
 	for _, tc := range []struct {
 		file string
 		want barRight
 	}{
-		{"", barRight{clock: true, host: sys}}, // no file: both, the system's name
-		{`hostname = "friendly"`, barRight{clock: true, host: "friendly"}},
+		{"", barRight{clock: true, host: sys}},                      // no file: both, the system's name
+		{`hostname = "friendly"`, barRight{clock: true, host: sys}}, // (no longer read: alias.toml)
 		{"show_clock = false\nshow_launch_host = false\n", barRight{}},
-		{"hostname = \"box\"\nshow_clock = false\n", barRight{host: "box"}},
+		{"hostname = \"box\"\nshow_clock = false\n", barRight{host: sys}},
 		{"show_launch_host = false\n", barRight{clock: true}},
 		{"not toml [", barRight{clock: true, host: sys}},
 	} {
@@ -214,7 +181,7 @@ func TestBarRightSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.localPath, m.barChecked = path, time.Now().Add(-time.Minute)
-	if !m.refreshBarRight(time.Now()) || m.bar != (barRight{host: "new"}) {
+	if !m.refreshBarRight(time.Now()) || m.bar != (barRight{host: systemHostName()}) {
 		t.Errorf("not re-read: %+v", m.bar)
 	}
 }

@@ -22,8 +22,8 @@ import (
 //	│        y: quit   n / Esc: cancel           │
 //	╰────────────────────────────────────────────╯
 //
-// While it is up nothing reaches the windows (they keep updating behind
-// it). The selected button is a solid bright one marked > <, the other a
+// While it is up, the windows' programs keep running and their output keeps
+// showing behind it; only your keys, mouse and pastes go to the dialog. The selected button is a solid bright one marked > <, the other a
 // flat gray one. Cancel is the default: Enter on it, n or Esc closes the dialog;
 // y, Enter on Quit, or Alt+q again quits. Left / Right / Tab move between
 // the buttons; a click on one presses it.
@@ -39,7 +39,7 @@ type quitDialog struct {
 func (m *WM) floatingWindows() []*Window {
 	var out []*Window
 	for _, w := range m.windows {
-		if !w.background && !m.isEvents(w) {
+		if !w.background && !m.isPanel(w) {
 			out = append(out, w)
 		}
 	}
@@ -48,7 +48,7 @@ func (m *WM) floatingWindows() []*Window {
 
 // askQuit is Alt+q: quit at once with only the background shell, else ask.
 func (m *WM) askQuit() {
-	if len(m.floatingWindows()) == 0 {
+	if len(m.floatingWindows()) == 0 || !m.local.confirmQuit { // local.toml confirm_quit = false: no dialog
 		m.quit = true
 		return
 	}
@@ -135,14 +135,43 @@ func (m *WM) drawQuitDialog(scr uv.Screen) {
 	x0 := max((m.cols-width)/2, 0)
 	y0 := max((m.rows-height)/2, 0)
 
-	base := uv.Style{Fg: m.cfg.Theme.StatusFg.C, Bg: m.cfg.Theme.StatusBg.C}
-	border := base
+	base, hint := m.drawDialogBox(scr, x0, y0, width, height, "Quit goat?")
+	for i, l := range lines {
+		putCells(scr, x0+2, y0+1+i, textCells(l, base, inner))
+	}
+
+	// The buttons. The selected one can't be mistaken: a solid bright
+	// fill (red for Quit, the theme's highlight for Cancel), bold text and
+	// > < markers; the other is a flat dim gray, without markers.
+	q, c := m.buttonCells("Quit", d.quit, true, base.Bg), m.buttonCells("Cancel", !d.quit, false, base.Bg)
+	gap := 4
+	bx := x0 + (width-len(q)-gap-len(c))/2
+	by := y0 + 1 + len(lines)
+	putCells(scr, bx, by, q)
+	putCells(scr, bx+len(q)+gap, by, c)
+	d.quitBtn = uv.Rect(bx, by, len(q), 1)
+	d.cancelBtn = uv.Rect(bx+len(q)+gap, by, len(c), 1)
+
+	keys := "y: quit   n / Esc: cancel"
+	putCells(scr, x0+max((width-len(keys))/2, 1), by+1, textCells(keys, hint, inner))
+}
+
+// dialogStyles are the colors of goat's dialogs: the status bar's, with a
+// border and hints in the theme's colors made to show on it.
+func (m *WM) dialogStyles() (base, border, hint uv.Style) {
+	base = uv.Style{Fg: m.cfg.Theme.StatusFg.C, Bg: m.cfg.Theme.StatusBg.C}
+	border = base
 	border.Fg = m.visibleOn(m.cfg.Theme.FocusedBorder.C, base.Bg, contrastBorder)
 	border.Attrs |= uv.AttrBold
-	hint := base
+	hint = base
 	hint.Fg = m.visibleOn(m.cfg.Theme.HintText.C, base.Bg, contrastLabel)
+	return base, border, hint
+}
 
-	// The box, filled.
+// drawDialogBox draws a dialog's box, filled, with the title in its top
+// line, and returns the styles for its text and hints.
+func (m *WM) drawDialogBox(scr uv.Screen, x0, y0, width, height int, title string) (base, hint uv.Style) {
+	base, border, hint := m.dialogStyles()
 	for y := y0; y < y0+height; y++ {
 		for x := x0; x < x0+width; x++ {
 			ch := ' '
@@ -164,26 +193,8 @@ func (m *WM) drawQuitDialog(scr uv.Screen) {
 			put(scr, x, y, runeCell(ch, st))
 		}
 	}
-	title := border
-	putCells(scr, x0+2, y0, textCells(" Quit goat? ", title, width-4))
-	for i, l := range lines {
-		putCells(scr, x0+2, y0+1+i, textCells(l, base, inner))
-	}
-
-	// The buttons. The selected one can't be mistaken: a solid bright
-	// fill (red for Quit, the theme's highlight for Cancel), bold text and
-	// > < markers; the other is a flat dim gray, without markers.
-	q, c := m.buttonCells("Quit", d.quit, true, base.Bg), m.buttonCells("Cancel", !d.quit, false, base.Bg)
-	gap := 4
-	bx := x0 + (width-len(q)-gap-len(c))/2
-	by := y0 + 1 + len(lines)
-	putCells(scr, bx, by, q)
-	putCells(scr, bx+len(q)+gap, by, c)
-	d.quitBtn = uv.Rect(bx, by, len(q), 1)
-	d.cancelBtn = uv.Rect(bx+len(q)+gap, by, len(c), 1)
-
-	keys := "y: quit   n / Esc: cancel"
-	putCells(scr, x0+max((width-len(keys))/2, 1), by+1, textCells(keys, hint, inner))
+	putCells(scr, x0+2, y0, textCells(" "+title+" ", border, width-4))
+	return base, hint
 }
 
 // Button colors (palette numbers, the same on every terminal).

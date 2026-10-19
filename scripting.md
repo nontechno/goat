@@ -342,9 +342,10 @@ Each option holds, like any setting, until the end of its block.
 | Option | Values | Default |
 |---|---|---|
 | [`wrap`](#wrap) | `on` / `off` | `wrap_lines` from config.toml |
-| [`theme`](#theme) | `dark` / `light` | (see [Colors](#colors)) |
-| [`bg`](#bg-and-fg) | color name, `0`–`255`, `#rrggbb`, `default` | (see [Colors](#colors)) |
-| [`fg`](#bg-and-fg) | color name, `0`–`255`, `#rrggbb`, `default` | (see [Colors](#colors)) |
+| [`palette`](#palette) | a palette's name or id | (see [Colors](#colors)) |
+| [`theme`](#theme) | `dark` / `in-between` / `light` | (see [Colors](#colors)) |
+| [`bg`](#bg-and-fg) | `0`–`255`, `#rrggbb`, `default` | (see [Colors](#colors)) |
+| [`fg`](#bg-and-fg) | `0`–`255`, `#rrggbb`, `default` | (see [Colors](#colors)) |
 | [`frame`](#frame) | `full` / `compact` / `none` | `frame` from config.toml |
 | [`size`](#size) | `COLUMNSxROWS` | `new_window_width_ratio` / `_height_ratio` |
 | [`pos`](#pos) | `X,Y` | a little below and right of the previous window |
@@ -382,55 +383,58 @@ Alt+z still switches the window either way afterwards.
 option: theme: dark
 ```
 
-Gives the window a background of that tone (dark or light) from your
-`.color` files (`dark-background.color`, `light-background.color`).
+Gives the window a palette of that theme (`dark`, `in-between` or
+`light`) from the palettes file (`terminal-color-combinations.json`, see
+[palettes.md](palettes.md)).
 
-- **Each window** that asks for the same tone gets **the next one** of that
-  tone, so several `theme: dark` windows look different: the first gets the
-  first dark background, the second the second, and so on, wrapping around.
-- **The text color** becomes one that reads well on that background: the
-  terminal's own text color if it shows well enough, else the first
-  suitable text color for that tone.
-- **Without the `.color` files** (`goat -install` fetches them), `theme`
-  is reported and has no effect.
+- **Each window** that asks for the same theme gets **the next background**
+  of that theme, so several `theme: dark` windows look different: the first
+  gets the theme's first palette, the second the one with the next
+  background, and so on, wrapping around (then with the next text color).
+- **Without the palettes file** (`goat -install` fetches it), `theme` is
+  reported and has no effect.
 
-> The first dark background in the standard files is *Obsidian* (pure black).
-> On a terminal that is black already, the first `theme: dark` window looks
-> uncolored. Use `bg:` to pick a particular color.
+### `palette`
+
+```
+option: palette: Minty Fresh Void
+option: palette: 29456
+```
+
+Gives the window one palette: by its name in any style (Pedantic, Funny,
+…; any case) or by its id (the `id` in the palettes file; the palette
+dialog, Alt+t, shows it in the status bar when you keep one). It wins over
+`theme`.
 
 ### `bg` and `fg`
 
 ```
-option: bg: Midnight
-option: fg: Gold
 option: bg: 17
 option: fg: #ffd700
 option: bg: default
 ```
 
-The window's background (`bg`) and text color (`fg`). A value is one of:
+The window's background (`bg`) and text color (`fg`), outside the
+palettes. A value is one of:
 
-- **a name from your `.color` files** (case-insensitive): `bg` looks among
-  the backgrounds (*Midnight*, *Ivory*, ...), `fg` among the text colors
-  (*Gold*, *Ink*, ...);
 - **a palette number** `0`–`255`;
 - **`#rrggbb`**;
 - **`default`**, the terminal's own color.
 
 How they combine with other color settings:
 
-- `bg` **wins over `theme`.**
+- `bg` / `fg` **win over `palette` and `theme`**: they replace that color
+  of it.
 - Giving only `fg` keeps the background the window would have had anyway
   (see [Colors](#colors)).
 - **Text must stay readable.** If the `fg` you give wouldn't show on the
   window's background (below `min_text_contrast` in config.toml), goat uses
-  a readable one instead and says so:
-  `fg: Gold wouldn't show on that background; using Ink`.
-- **A name or color goat doesn't know** is reported; that setting is then
-  left out.
+  a readable one instead (the terminal's own, else black or white) and says
+  so: `fg: 17 wouldn't show on that background; using …`.
+- **A value that isn't a color** is reported; that setting is then left
+  out.
 
-Alt+b and Alt+f work in the window afterwards as usual, going on from these
-colors.
+Alt+t chooses another palette for the window afterwards, as for any window.
 
 ### `frame`
 
@@ -546,15 +550,16 @@ closes them, Alt+s swaps one with the background, and so on.
 A window's colors are decided in this order:
 
 1. **The colors any new window gets** (Alt+c). With
-   `new_window_next_colors = true` (the default), that's the next
-   background after the window before it. So each script window, like each
-   Alt+c window, differs from the previous one. With `false`, it gets the
-   previous window's colors.
-2. **`theme`** replaces the background with the next one of that tone.
+   `new_window_next_colors = true` (the default), that's the palette with
+   the next background after the window before it's. So each script window,
+   like each Alt+c window, differs from the previous one. With `false`, it
+   gets the previous window's colors.
+2. **`palette`** gives it that palette; else **`theme`** the next one of
+   that theme.
 3. **`bg`** replaces the background with that color.
 4. **`fg`** sets the text color.
-5. **If the text wouldn't show** on the background, it's replaced with a
-   readable one (`min_text_contrast`).
+5. **If the text wouldn't show** on the background (after `bg` / `fg`),
+   it's replaced with a readable one (`min_text_contrast`).
 
 The background window keeps its own colors; a script doesn't change them.
 
@@ -611,8 +616,9 @@ that makes sense still opens.
 | `}` without a `{` | reported; ignored |
 | `{` without a `}` | reported; the block ends at the end of the file |
 | `cd:` folder missing | reported when the window opens; it starts in the folder goat was started in |
-| `theme` without the `.color` files | reported; no effect |
-| unknown color in `bg` / `fg` | reported; that setting is ignored |
+| `theme` or `palette` without the palettes file | reported; no effect |
+| unknown `palette` name or id | reported; no effect |
+| a `bg` / `fg` that isn't a color | reported; that setting is ignored |
 | `fg` unreadable on the background | reported; a readable text color is used |
 | program not found / fails | the window stays open showing the error ([`hold`](#hold)) |
 
@@ -769,14 +775,14 @@ title: web-2
 run: ssh -t web-2 'htop'
 {
 	title: db
-	option: bg: Lavender
+	option: palette: Lavender on Navy Blue
 	option: wrap: off
 	run: ssh -t db-1 'sudo tail -f /var/log/postgresql/postgresql.log'
 }
 ```
 
 **What this opens:** *web-1* and *web-2* get the first two light
-backgrounds, and *db* is Lavender. If a server can't be reached, ssh fails
+backgrounds, and *db* lavender text on navy blue. If a server can't be reached, ssh fails
 and its window stays open showing the ssh error; press Enter to close it.
 
 ### Quotes and braces

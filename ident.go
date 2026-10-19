@@ -16,7 +16,7 @@ import (
 // A window's identity is the user and host its program runs as, shown on
 // the bottom border (show_user, show_host):
 //
-//   - normally goat's host ("hostname" in local.toml, or the system name) and the user of
+//   - normally goat's host (the system's name) and the user of
 //     the window's foreground process, so "su" or "sudo -i" shows root;
 //   - while the foreground process is ssh, the user and host it connects to:
 //     the host as typed on the command line, the user as ssh will use it
@@ -87,6 +87,7 @@ func (m *WM) frameLabel(w *Window) string {
 	if id == (identity{}) {
 		id = m.localIdent()
 	}
+	id = m.aliasIdent(id) // alias.toml [host]
 	var who string
 	if m.plainIdent { // the terminal can't draw the emoji (goat -learn)
 		who = id.label(m.cfg.ShowUser, m.cfg.ShowHost)
@@ -101,6 +102,12 @@ func (m *WM) frameLabel(w *Window) string {
 		return who + " " + g
 	}
 	return who
+}
+
+// aliasIdent is id with its host shown by its alias (alias.toml [host]).
+func (m *WM) aliasIdent(id identity) identity {
+	id.host = m.showHost(id.host)
+	return id
 }
 
 // refreshIdent updates w's identity from its foreground process; reports a
@@ -133,7 +140,7 @@ func (m *WM) refreshIdent(w *Window) bool {
 	logger.Info("window identity changed", "window", w.id, "from", w.ident.label(true, true),
 		"to", id.label(true, true), "pid", pid)
 	if w.ident != (identity{}) { // not the first look
-		m.logEvent(w, evIdentity, w.ident.label(true, true)+" "+changeSymbol+" "+id.label(true, true))
+		m.logEvent(w, evIdentity, m.aliasIdent(w.ident).label(true, true)+" "+changeSymbol+" "+m.aliasIdent(id).label(true, true))
 	}
 	w.ident = id
 	return true
@@ -201,18 +208,18 @@ func (m *WM) handleIdent(msg identMsg) {
 	}
 }
 
-// refreshLocalIdent re-reads goat's host label (local.toml's hostname or the system
-// name) every hostRecheckEvery; reports a change.
+// refreshLocalIdent re-reads the system's host name every hostRecheckEvery
+// (a rename shows by itself); reports a change.
 func (m *WM) refreshLocalIdent(now time.Time) bool {
 	if now.Sub(m.hostChecked) < hostRecheckEvery {
 		return false
 	}
 	m.hostChecked = now
-	h, source := hostLabel(localConfigPath())
+	h := systemHostName()
 	if h == m.host {
 		return false
 	}
-	logger.Info("host name changed", "from", m.host, "to", h, "source", source)
+	logger.Info("host name changed", "from", m.host, "to", h)
 	m.host = h
 	return true
 }

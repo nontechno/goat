@@ -161,8 +161,8 @@ func init() {
 	for a, n := range map[action]string{
 		actNewWindow: "new window", actFocusNext: "focus next", actFocusPrev: "focus previous",
 		actQuit: "quit", actCloseWindow: "close window", actPinWindow: "pin window",
-		actCycleBackground: "next background", actCycleForeground: "next text color", actToggleWrap: "wrap / no wrap",
-		actScrollLeft: "view left", actScrollRight: "view right", actShowEvents: "events window", actSwapBackground: "swap with background", actRepaint: "repaint screen",
+		actPalette: "palette", actToggleWrap: "wrap / no wrap",
+		actScrollLeft: "view left", actScrollRight: "view right", actShowEvents: "events window", actSwapBackground: "swap with background", actRepaint: "repaint screen", actSettings: "settings",
 		actMoveLeft: "move left", actMoveDown: "move down", actMoveUp: "move up", actMoveRight: "move right",
 		actResizeLeft: "narrower", actResizeDown: "taller", actResizeUp: "shorter", actResizeRight: "wider",
 	} {

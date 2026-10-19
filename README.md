@@ -27,18 +27,19 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 - A full-screen background shell (window 0) in the launch folder, always
   underneath; floating, overlapping windows on top; pin one to keep it above
   the others
+- Aliases (`~/.config/goat/alias.toml`): shorter or friendlier names shown
+  for host names, directories, git repositories and branches, e.g.
+  `"/home/opc" = "🏠"` or `"*/main" = "🏡"`; see [aliasing.md](aliasing.md)
 - Status bar: a numbered tab per window (click to focus), messages, a clock,
-  the name of the host goat runs on (`💻myhost`: `hostname` from
-  `~/.config/goat/local.toml`, else the system's), and optionally the
+  the name of the host goat runs on (`💻myhost`), and optionally the
   active window's directory (`status_show_dir`). The clock and the host
   name can be turned off in `local.toml` with `show_clock = false` and
   `show_launch_host = false` (both on by default; edits show within
   seconds)
 - New windows (Alt+c) start in the active window's current directory
 - `🧑user 💻host` on each framed window's bottom border (`show_user`,
-  `show_host`, both on by default). The host is `hostname` in
-  `~/.config/goat/local.toml` (up to 32 characters) if you want a custom
-  label, else the system's host name. Both follow the window: `su`/`sudo -i` shows the new
+  `show_host`, both on by default). The host is the system's host name.
+  Both follow the window: `su`/`sudo -i` shows the new
   user, and while ssh runs in the window, the user and host it logs in to
   (Linux)
 - After them, when the window's current directory is in a git repository,
@@ -52,21 +53,22 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   second and is listed in the events window. Not shown while the window
   runs ssh (the directory goat sees is then the local one), nor for the
   background shell, which has no frame
-- Per-window colors from the `.color` files in `~/.config/goat` (installed
-  by `goat -install`): Alt+b steps the background through the dark ones, then
-  the light ones, then the terminal's own; Alt+f steps the text color through
-  those made for the background's tone (dark or light). The border takes the
-  background, and its lines and text are made lighter or darker where the
-  theme's border colors wouldn't show on it; the cursor takes the text color
-  (where the terminal allows setting it). Each new window starts at the next background after the
-  window it came from (`new_window_next_colors = false`: the same colors as
-  that window). Each press always shows a different color: a color listed twice (or
-  that looks like the one before, or like the terminal's own) is passed
-  over. Text colors that wouldn't show on the background (below
-  `min_text_contrast`) are skipped or replaced. The background window's
-  colors are saved in `local.toml` (`[background_window]`) and come back
-  the next time goat starts.
-  Without the `.color` files windows keep the terminal's colors
+- Per-window colors from **palettes**: 108 background + text pairs from
+  [nontechno/color](https://github.com/nontechno/color)
+  (`terminal-color-combinations.json`, fetched by `goat -install`). Alt+t
+  opens the palette dialog: choose a theme (dark, in-between, light), a
+  style for the names (Pedantic, Funny, Outrageous, Vulgar, Corporate,
+  Geeky, Wholesome, Sports) and one of the theme's 36 palettes, each shown
+  in its own colors. The window shows each one as you move; Enter keeps
+  it, Esc puts the old colors back, Delete goes back to the terminal's own.
+  The border takes the background, and its lines and text are made lighter
+  or darker where the theme's border colors wouldn't show on it; the cursor
+  takes the text color (where the terminal allows setting it). Each new
+  window gets the next background of the palette of the window it came
+  from (`new_window_next_colors = false`: the same palette). The background
+  window's palette is saved in `local.toml` (`[background_window]`), the
+  palettes of goat's own windows in `system.toml`; both come back the next
+  time goat starts. See [palettes.md](palettes.md)
 - Keyboard-driven window management, plus mouse: drag the title bar to move,
   drag the left/right/bottom edges or bottom corners to resize, click to focus
 - Full rendering: 256-color and true color, bold/italic/underline/reverse,
@@ -132,6 +134,30 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   supported (`ESC ] 7501 ; ? ST`) get `ESC ] 7501 ; ? ST`. Nothing else is
   shown for them yet; what goat does with each kind of report is in the
   (empty) `onStatus*` functions in `status.go`
+- Help window (F1): every keyboard shortcut and mouse action, with the keys
+  as `config.toml` binds them. A regular window without a program, like the
+  events window: move it, resize it (the text is laid out again for the new
+  width), scroll it, copy from it, and keep working in other windows
+  meanwhile. F1 again hides it, whether or not it has the focus (Alt+x too)
+- Status window (F2): goat itself. Version and build, since when and where
+  it runs, its files (config, local, aliases, log); and, refreshed every
+  second, the windows (floating, hidden, pinned, goat's own), the processes
+  in them with their memory and CPU, goat's own memory, CPU and goroutines,
+  history kept, events, and what programs report (OSC 7501). F2 again
+  hides it
+- Inventory window (F3): every window: its processes (everything under its
+  shell, with memory and CPU), directory, user@host and git, size, history,
+  hidden/pinned/ended, and its program's status reports (OSC 7501).
+  Refreshed every second. ↑ ↓ (or a click) choose a window, Enter (or a
+  double click) goes to it, bringing it back if Alt+0 hid it. F3 again
+  hides it. Process figures come from `/proc` on Linux and `ps` on macOS,
+  sampled every 2 s, only while the status or inventory window is open
+- goat's own windows (help, status, inventory, events) can be set up in
+  `~/.config/goat/system.toml`: title, the key that shows them, palette,
+  size and position (columns / rows or a percentage of the screen; a
+  negative position counts from the right / bottom edge). goat writes the
+  palette you choose for one of them, and where you move or resize it, back
+  into that file. See [palettes.md](palettes.md)
 - Programs in windows can set the clipboard too (OSC 52, e.g. from vim, tmux
   or neovim); goat passes it on. Programs can't read the clipboard.
 - Select text with the mouse and it is copied to the clipboard: through the
@@ -174,8 +200,7 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Move window               | `Alt+h/j/k/l` or `Alt+arrows`   |
 | Resize window             | `Alt+H/J/K/L` or `Alt+Shift+arrows` |
 | Pin / unpin (stay on top) | `Alt+w`                         |
-| Next background color     | `Alt+b`                         |
-| Next text color           | `Alt+f`                         |
+| Choose the window's palette (colors) | `Alt+t`              |
 | Scroll history by a page  | `Alt+PageUp` / `Alt+PageDown`   |
 | Scroll history by 3 lines | `Alt+Shift+PageUp` / `PageDown` |
 | Oldest line / live view   | `Alt+Home` / `Alt+End`          |
@@ -184,6 +209,10 @@ Flags: `-config <file>` to use a specific config file, `-version`,
 | Events window (bells, notifications, ...) | `Alt+-`         |
 | Swap with the background  | `Alt+s`                         |
 | Repaint the screen        | `Alt+r`                         |
+| Settings (`local.toml`)   | `Alt+o`                         |
+| Help: all keys and mouse actions | `F1` (again: hide)       |
+| goat's status: version, memory, CPU | `F2` (again: hide)    |
+| Inventory: every window; Enter goes to it | `F3` (again: hide) |
 | Close window              | `Alt+x`                         |
 | Quit goat (asks first if windows are open) | `Alt+q`          |
 
@@ -225,7 +254,9 @@ the terminal sends and what goat makes of them.
 **Quitting** with floating windows open asks first: a "Quit goat?" box
 lists them. `y` (or Alt+q again, or Enter on *Quit*) quits; `n`, `Esc` or
 Enter on *Cancel* (the default) goes back. ←/→/Tab switch buttons, and
-clicking one presses it. While the box is up, nothing reaches the windows.
+clicking one presses it. While the box is up, programs keep running and
+their windows keep showing their output; only your keys, mouse and pastes
+go to the box.
 With only the background shell, Alt+q quits at once.
 
 The background shell can't be moved, resized, pinned or closed with Alt+x.
@@ -249,13 +280,13 @@ are still open; then a fresh background shell is started.
 
 `goat -install` sets up the config folder (`~/.config/goat`, or
 `$XDG_CONFIG_HOME/goat`): it downloads `config.toml` and `local.toml` from
-https://goat.nontechno.com/configs/ and the color files
-(`dark-background.color`, `dark-foreground.color`, `light-background.color`,
-`light-foreground.color`) from https://goat.nontechno.com/colors/, then exits. A file that
-can't be downloaded from there (or isn't a valid file of its kind) comes
-from the backup copy at
+https://goat.nontechno.com/configs/ and the palettes,
+`terminal-color-combinations.json`, from
+https://github.com/nontechno/color (backup: https://color.nontechno.com/),
+then exits. A config file that can't be downloaded from there (or isn't a
+valid file of its kind) comes from the backup copy at
 https://raw.githubusercontent.com/nontechno/goat/refs/heads/resources/
-(same `colors/` and `configs/` folders) instead. Nothing is written unless every
+(`configs/` folder) instead. Nothing is written unless every
 download succeeds; a file you changed is kept as `<name>.<time>.bak`.
 `GOAT_INSTALL_URL` points it at another server (used instead of both).
 
@@ -263,6 +294,28 @@ goat reads `$XDG_CONFIG_HOME/goat/config.toml` or
 `~/.config/goat/config.toml`, and falls back to float's
 `~/.config/float/config.toml`, so an existing float config keeps working. See
 [`config.example.toml`](config.example.toml) for every option.
+
+`~/.config/goat/local.toml` holds settings for this machine only (so
+`config.toml` can be shared between machines); keep its keys above any
+`[section]` goat adds to it:
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `show_clock`, `show_launch_host` | `true` | The clock and the host name at the right end of the status bar (re-read every few seconds) |
+| `wrap_lines` | `config.toml`'s | Whether long lines wrap at start (background shell, launch script windows) |
+| `new_window_size` | `config.toml`'s ratios | Size of new windows: `"100x30"` (whole window), `"60%x50%"`, or a mix |
+| `confirm_quit` | `true` | Ask before Alt+q quits while floating windows are open |
+| `exit_on_last_window` | `false` | Quit goat when the last floating window closes |
+
+Alt+o opens a settings dialog for these: it reads `local.toml`, shows each
+setting's value (or the default, when it isn't set), lets you change them
+(↑↓ to choose, ←→ or Space to change a yes/no setting, Enter to type a
+value; an empty value means the default), and on Save writes them back and
+applies them at once; Discard (or Esc) leaves everything as it was. Saving
+changes only these keys: comments, other keys and goat's sections stay.
+
+goat also keeps the background window's colors (`[background_window]`) and
+what `goat -learn` found out about the terminal (`[terminal."NAME"]`) there.
 
 Mistakes in the config never stop goat: unknown keys and invalid values are
 shown in the status bar and listed again when goat exits, and defaults are
@@ -326,7 +379,8 @@ Fixed along the way:
   answered by a full emulator, so no stray replies end up in the shell
 - Esc followed by a non-shortcut key is no longer swallowed; Esc then an arrow
   no longer moves the window
-- Every key is sent: Home/End/PageUp/PageDown/Insert/Delete, F1–F12,
+- Every key is sent: Home/End/PageUp/PageDown/Insert/Delete, F4–F12 (F1–F3
+  open goat's help, status and inventory windows),
   modifier combinations, and application cursor mode for vim/less/zsh
 - Resizing from the left edge resizes the program's terminal too
 - Shrinking the terminal redraws cleanly and keeps every window reachable

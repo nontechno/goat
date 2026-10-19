@@ -125,11 +125,9 @@ func findPython() (string, error) {
 	return "", os.ErrNotExist
 }
 
-// goat's own host label is re-read every few seconds.
+// goat's own host name (the system's) is re-read every few seconds, so a
+// rename shows by itself.
 func TestLocalHostRecheck(t *testing.T) {
-	x := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", x)
-	_ = os.MkdirAll(filepath.Join(x, "goat"), 0o755)
 	m := newWM(DefaultConfig(), nil, 80, 24)
 	m.host = "old"
 	now := time.Now()
@@ -137,11 +135,8 @@ func TestLocalHostRecheck(t *testing.T) {
 	if m.refreshLocalIdent(now.Add(time.Second)) {
 		t.Fatal("re-read before the interval")
 	}
-	if err := os.WriteFile(filepath.Join(x, "goat", "local.toml"), []byte("hostname = \"new-name\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if !m.refreshLocalIdent(now.Add(hostRecheckEvery)) || m.host != "new-name" {
-		t.Fatalf("host %q after local.toml changed", m.host)
+	if !m.refreshLocalIdent(now.Add(hostRecheckEvery)) || m.host != systemHostName() {
+		t.Fatalf("host %q, want the system's %q", m.host, systemHostName())
 	}
 	if m.refreshLocalIdent(now.Add(3 * hostRecheckEvery)) {
 		t.Fatal("reported a change without one")

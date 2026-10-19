@@ -27,7 +27,7 @@ alt_timeout_ms = 50
 focused_border = 12
 compact_title_bg = "#1e1e2e"
 [keys]
-new_window = "t"
+new_window = "y"
 `)
 	if len(warns) != 0 {
 		t.Fatalf("warnings: %v", warns)
@@ -41,7 +41,7 @@ new_window = "t"
 	if got := c.Theme.CompactTitleBg.C; got != (color.RGBA{0x1e, 0x1e, 0x2e, 0xff}) {
 		t.Fatalf("compact_title_bg = %v", got)
 	}
-	if c.bindings['t'] != actNewWindow || c.bindings['c'] != actNone {
+	if c.bindings['y'] != actNewWindow || c.bindings['c'] != actNone {
 		t.Fatalf("rebinding failed: %v", c.bindings)
 	}
 	// Untouched values keep their defaults.

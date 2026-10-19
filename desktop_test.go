@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -47,8 +48,8 @@ func TestDesktopColorsRoundTrip(t *testing.T) {
 	if !ok || w != "" || !got.same(d) {
 		t.Fatalf("read back %+v ok %v %q", got, ok, w)
 	}
-	if readLocalHostname(path) != "friendly" {
-		t.Fatal("hostname no longer read")
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), `hostname = "friendly"`) {
+		t.Fatal("other lines of local.toml lost")
 	}
 
 	// Saving again replaces the section (once), keeping everything else;
@@ -91,31 +92,39 @@ func TestReplaceSectionInMiddle(t *testing.T) {
 	}
 }
 
-// Alt+b / Alt+f on the background window save its colors; on a floating
-// window they don't. A fresh background shell gets the saved colors back.
+// A palette kept for the background window is saved; one for a floating
+// window isn't. A fresh background shell gets the saved colors back, and
+// its palette.
 func TestDesktopColorsSavedAndRestored(t *testing.T) {
 	m, bg, _, fw := wmWithBackground(t)
-	m.palette = fullPalette(t)
+	m.combos = testCombos(t)
 	m.hostBg = ansi.IndexedColor(234)
 	m.localPath = filepath.Join(t.TempDir(), "local.toml")
 
 	m.focus(fw)
-	_ = m.run(actCycleBackground)
+	_ = m.run(actPalette)
+	key(m, uv.Key{Code: uv.KeyDown})
+	key(m, uv.Key{Code: uv.KeyEnter})
+	if fw.pal == 0 {
+		t.Fatal("no palette chosen")
+	}
 	if _, err := os.Stat(m.localPath); !os.IsNotExist(err) {
 		t.Fatal("a floating window's colors were saved")
 	}
 
 	m.focus(bg)
-	_ = m.run(actCycleBackground) // Zed
-	_ = m.run(actCycleBackground) // Alpha
-	_ = m.run(actCycleForeground) // Bone
+	_ = m.run(actPalette)
+	key(m, uv.Key{Code: uv.KeyDown}) // (no palette yet) the first dark one
+	key(m, uv.Key{Code: uv.KeyDown}) // the second
+	key(m, uv.Key{Code: uv.KeyEnter})
+	want := m.combos.get(m.combos.byTheme[0][1])
 	d, ok, _ := readDesktopColors(m.localPath)
-	if !ok || d.bg != ansi.IndexedColor(17) || d.fg != ansi.IndexedColor(255) {
+	if !ok || d.bg != ansi.IndexedColor(want.bgANSI) || d.fg != ansi.IndexedColor(want.fgANSI) {
 		t.Fatalf("saved %+v ok %v", d, ok)
 	}
 	data, _ := os.ReadFile(m.localPath)
-	if !strings.Contains(string(data), "# Alpha") || !strings.Contains(string(data), "# Bone") {
-		t.Fatalf("names missing:\n%s", data)
+	if !strings.Contains(string(data), "# "+want.names[0]) {
+		t.Fatalf("name missing:\n%s", data)
 	}
 
 	// Nothing changed: no write.
@@ -125,19 +134,18 @@ func TestDesktopColorsSavedAndRestored(t *testing.T) {
 		t.Fatal("rewritten without a change")
 	}
 
-	// Restored, with its place in the lists.
+	// Restored, with its palette.
 	w := fakeWindow(0, 0, 0, 20, 6, false, false)
 	m.initBackground(w)
 	m.restoreDesktop(w)
-	if w.bgColor != ansi.IndexedColor(17) || w.bgPick != 2 || w.fgColor != ansi.IndexedColor(255) ||
-		w.fgPick != 1 || w.fgTone != toneDark {
-		t.Fatalf("restored bg %v (%d) fg %v (%d %v)", w.bgColor, w.bgPick, w.fgColor, w.fgPick, w.fgTone)
+	if w.bgColor != ansi.IndexedColor(want.bgANSI) || w.pal != m.combos.byTheme[0][1]+1 {
+		t.Fatalf("restored bg %v palette %d", w.bgColor, w.pal)
 	}
 
 	// Saved colors that wouldn't show together get a readable text color.
 	m.desk = desktopColors{bg: ansi.IndexedColor(231), fg: ansi.IndexedColor(255)}
 	m.restoreDesktop(w)
-	if w.fgColor != ansi.IndexedColor(233) {
+	if !m.readable(w.fgColor, w.bgColor) || w.pal != 0 {
 		t.Fatalf("white on white restored: %v", w.fgColor)
 	}
 }

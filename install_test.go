@@ -16,19 +16,17 @@ import (
 // its kind, marked with the server's name and a version.
 func installContent(path, server string, version int32) string {
 	mark := fmt.Sprintf("%s %s v%d", server, path, version)
-	if strings.HasSuffix(path, ".color") {
-		role, tone := "background", "dark"
-		for _, f := range paletteFiles {
-			if strings.HasSuffix(path, "/"+f.name) {
-				role, tone = f.role, f.tone.String()
-			}
-		}
-		return fmt.Sprintf(`{"role":%q,"tone":%q,"colors":{%q:{"ansi":17}}}`+"\n", role, tone, mark)
+	if strings.HasSuffix(path, combosFile) {
+		return fmt.Sprintf(`[{"id":1,"Theme":"dark","Background.rgb":"#000000","Background.ansi":16,`+
+			`"Text.rgb":"#ffffff","Text.ansi":231,"Pedantic":%q}]`+"\n", mark)
 	}
 	return "# " + mark + "\n"
 }
 
-func wantContent(f struct{ dir, name string }, server string, version int32) string {
+func wantContent(f struct {
+	dir, name string
+	palettes  bool
+}, server string, version int32) string {
 	return installContent(f.dir+"/"+f.name, server, version)
 }
 
@@ -55,9 +53,13 @@ func installServer(t *testing.T, name string, version *atomic.Int32, broken map[
 
 // useSources points -install at the given servers for the test.
 func useSources(t *testing.T, sources ...string) {
-	old := installSources
+	old, oldCombos := installSources, combosSources
 	installSources = sources
-	t.Cleanup(func() { installSources = old })
+	combosSources = nil // the palettes from the test servers too
+	for _, s := range sources {
+		combosSources = append(combosSources, s+"colors/"+combosFile)
+	}
+	t.Cleanup(func() { installSources, combosSources = old, oldCombos })
 	t.Setenv("GOAT_INSTALL_URL", "")
 }
 
@@ -144,7 +146,7 @@ func TestInstallFallsBackToBackup(t *testing.T) {
 	var ver atomic.Int32
 	ver.Store(1)
 	main := installServer(t, "main", &ver, map[string]string{
-		"config.toml": "missing", "dark-foreground.color": "garbage", "local.toml": "garbage",
+		"config.toml": "missing", combosFile: "garbage", "local.toml": "garbage",
 	})
 	backup := installServer(t, "backup", &ver, nil)
 	useSources(t, main, backup)
@@ -155,7 +157,7 @@ func TestInstallFallsBackToBackup(t *testing.T) {
 	dir := filepath.Join(home, ".config", "goat")
 	for _, f := range installFiles {
 		want := "main"
-		if f.name == "config.toml" || f.name == "dark-foreground.color" || f.name == "local.toml" {
+		if f.name == "config.toml" || f.name == combosFile || f.name == "local.toml" {
 			want = "backup"
 		}
 		if b, _ := os.ReadFile(filepath.Join(dir, f.name)); string(b) != wantContent(f, want, 1) {

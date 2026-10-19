@@ -301,7 +301,14 @@ func (m *WM) gitFrameText(w *Window) string {
 	if !m.cfg.ShowGit || w.procName == "ssh" {
 		return ""
 	}
-	return w.git.frameText(m.plainIdent)
+	return m.aliasGit(w.git).frameText(m.plainIdent)
+}
+
+// aliasGit is g with its repository and branch shown by their aliases
+// (alias.toml [repo], [branch]; both looked up by the real names).
+func (m *WM) aliasGit(g gitInfo) gitInfo {
+	g.repo, g.branch = m.alias.a.repo(g.repo), m.alias.a.branch(g.repo, g.branch)
+	return g
 }
 
 // evGit lists branch switches in the events window.
@@ -319,7 +326,8 @@ func (m *WM) refreshPlace(w *Window, now time.Time) bool {
 	if m.cfg.ShowGit {
 		gitChanged, sw := w.refreshGit(now)
 		if sw != [2]string{} {
-			m.logEvent(w, evGit, w.git.repo+": "+sw[0]+" "+changeSymbol+" "+sw[1])
+			a := m.alias.a
+			m.logEvent(w, evGit, a.repo(w.git.repo)+": "+a.branch(w.git.repo, sw[0])+" "+changeSymbol+" "+a.branch(w.git.repo, sw[1]))
 		}
 		changed = changed || gitChanged
 	}

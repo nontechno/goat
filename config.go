@@ -81,12 +81,13 @@ type ThemeConfig struct {
 	ClockBg         Color  `toml:"clock_bg"`
 	CompactTitleBg  *Color `toml:"compact_title_bg"` // compact border bg; nil = terminal default
 
-	// New windows (Alt+c) take the background after the focused window's
-	// (from the .color files), so they don't look like the window they
-	// came from; when false, the focused window's colors.
+	// New windows (Alt+c) take the palette after the focused window's (the
+	// next background of its theme), so they don't look like the window
+	// they came from; when false, the focused window's colors.
 	NewWindowNextColors bool `toml:"new_window_next_colors"`
 	// Background / text color pairs below this contrast (1-21; WCAG ratio)
-	// aren't used: Alt+f skips them, Alt+b changes the text color. 0 = off.
+	// aren't used: a launch script's bg / fg that would be unreadable gets
+	// a readable text color. 0 = off.
 	MinTextContrast float64 `toml:"min_text_contrast"`
 }
 
@@ -107,14 +108,14 @@ type KeyConfig struct {
 	ResizeRight string `toml:"resize_right"`
 	PinWindow   string `toml:"pin_window"`
 
-	CycleBackground string `toml:"cycle_background"` // next background (from the .color files)
-	CycleForeground string `toml:"cycle_foreground"` // next text color for the background's tone
-	ToggleWrap      string `toml:"toggle_wrap"`      // wrap long lines or not
-	ScrollLeft      string `toml:"scroll_left"`      // view sideways (no-wrap)
-	ScrollRight     string `toml:"scroll_right"`
-	ShowEvents      string `toml:"show_events"`     // the events window (bells, notifications, ...)
-	SwapBackground  string `toml:"swap_background"` // swap the active window's program with the background's
-	Repaint         string `toml:"repaint"`         // redraw the whole screen
+	Palette        string `toml:"palette"`     // choose the active window's colors (paldlg.go)
+	ToggleWrap     string `toml:"toggle_wrap"` // wrap long lines or not
+	ScrollLeft     string `toml:"scroll_left"` // view sideways (no-wrap)
+	ScrollRight    string `toml:"scroll_right"`
+	ShowEvents     string `toml:"show_events"`     // the events window (bells, notifications, ...)
+	SwapBackground string `toml:"swap_background"` // swap the active window's program with the background's
+	Repaint        string `toml:"repaint"`         // redraw the whole screen
+	Settings       string `toml:"settings"`        // the settings dialog (local.toml)
 }
 
 // LayoutConfig holds window geometry settings.
@@ -178,8 +179,8 @@ type Config struct {
 	ShowGit bool `toml:"show_git"`
 
 	// Show the host name on the left of each framed window's bottom border.
-	// The name is "hostname" in ~/.config/goat/local.toml (up to 32
-	// characters) if it sets one, else the system's host name.
+	// The name is the system's host name, or its alias from
+	// ~/.config/goat/alias.toml (alias.go).
 	ShowHost bool `toml:"show_host"`
 	// Show the user name there too ("user@host"): the user of the window's
 	// foreground program (root after su/sudo), or the user an ssh session
@@ -207,7 +208,6 @@ type Config struct {
 	Layout LayoutConfig `toml:"layout"`
 
 	bindings map[rune]action
-	palette  *palette // loaded from the .color files at startup (palette.go)
 	frame    frameStyle
 }
 
@@ -242,9 +242,9 @@ func DefaultConfig() *Config {
 		},
 		Keys: KeyConfig{
 			NewWindow: "c", FocusNext: "n", FocusPrev: "p", Quit: "q",
-			CloseWindow: "x", PinWindow: "w", CycleBackground: "b", CycleForeground: "f",
+			CloseWindow: "x", PinWindow: "w", Palette: "t",
 			ToggleWrap: "z", ScrollLeft: "<", ScrollRight: ">", ShowEvents: "-",
-			SwapBackground: "s", Repaint: "r",
+			SwapBackground: "s", Repaint: "r", Settings: "o",
 			MoveLeft: "h", MoveDown: "j", MoveUp: "k", MoveRight: "l",
 			ResizeLeft: "H", ResizeDown: "J", ResizeUp: "K", ResizeRight: "L",
 		},
@@ -279,14 +279,14 @@ const (
 	actResizeUp
 	actResizeRight
 	actPinWindow
-	actCycleBackground
-	actCycleForeground
+	actPalette
 	actToggleWrap
 	actScrollLeft
 	actScrollRight
 	actShowEvents
 	actSwapBackground
 	actRepaint
+	actSettings
 )
 
 // finish validates the config and builds the key binding table. Problems are
@@ -302,7 +302,12 @@ func (c *Config) finish(md *toml.MetaData) []string {
 			c.AltTimeoutMs = c.Layout.AltTimeoutMs
 		}
 		for _, k := range md.Undecoded() {
-			warn("unknown setting %q (ignored)", k.String())
+			switch k.String() {
+			case "keys.cycle_background", "keys.cycle_foreground":
+				warn("%s is no longer used: Alt+%s (keys.palette) chooses a window's colors", k.String(), c.Keys.Palette)
+			default:
+				warn("unknown setting %q (ignored)", k.String())
+			}
 		}
 	}
 
@@ -377,14 +382,14 @@ func (c *Config) finish(md *toml.MetaData) []string {
 		{"resize_up", &c.Keys.ResizeUp, "K", actResizeUp},
 		{"resize_right", &c.Keys.ResizeRight, "L", actResizeRight},
 		{"pin_window", &c.Keys.PinWindow, "w", actPinWindow},
-		{"cycle_background", &c.Keys.CycleBackground, "b", actCycleBackground},
-		{"cycle_foreground", &c.Keys.CycleForeground, "f", actCycleForeground},
+		{"palette", &c.Keys.Palette, "t", actPalette},
 		{"toggle_wrap", &c.Keys.ToggleWrap, "z", actToggleWrap},
 		{"scroll_left", &c.Keys.ScrollLeft, "<", actScrollLeft},
 		{"scroll_right", &c.Keys.ScrollRight, ">", actScrollRight},
 		{"show_events", &c.Keys.ShowEvents, "-", actShowEvents},
 		{"swap_background", &c.Keys.SwapBackground, "s", actSwapBackground},
 		{"repaint", &c.Keys.Repaint, "r", actRepaint},
+		{"settings", &c.Keys.Settings, "o", actSettings},
 	} {
 		r, size := utf8.DecodeRuneInString(*b.val)
 		if *b.val == "" || size != len(*b.val) || (r >= '0' && r <= '9') {
