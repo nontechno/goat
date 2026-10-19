@@ -110,6 +110,9 @@ func (m *WM) panelKey(w *Window, k uv.Key) {
 	if m.isInventory(w) && m.inventoryKey(k) {
 		return
 	}
+	if m.isHelp(w) && m.helpKey(k) { // choose and change shortcuts (keymap.go)
+		return
+	}
 	page := max(w.contentH()-1, 1)
 	switch k.Code {
 	case uv.KeyUp:

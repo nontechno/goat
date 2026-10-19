@@ -167,6 +167,14 @@ title_source = "process"
 #   "off"  - never
 true_color = "auto"
 
+# Ask the terminal to report keys the classic encoding can't tell apart
+# (Shift+Enter from Enter, Ctrl+i from Tab, Esc from Alt), with kitty's
+# keyboard protocol or xterm's modifyOtherKeys, so goat can pass them on to
+# programs that ask for them (Claude Code: Shift+Enter for a new line).
+# Terminals that know neither (macOS Terminal) are unaffected. goat puts
+# the keyboard back as it was on exit.
+keyboard_enhancements = true
+
 [theme]
 # Colors are an ANSI palette index (0-255), "#rrggbb" or "default".
 focused_border = 14
@@ -211,6 +219,8 @@ min_text_contrast = 3
 
 [keys]
 # Every binding is a single character used with the Alt modifier.
+# Keys changed in the help window (F1: choose a shortcut, Enter, press the
+# new key) are kept in ~/.config/goat/keymap.toml and win over these.
 # Arrow keys always work too: Alt+arrow moves, Alt+Shift+arrow resizes.
 # Alt+1..9 focus windows by the number shown in their title; Alt+0 focuses
 # the full-screen background shell.

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -144,7 +145,7 @@ func TestStatusProtocol(t *testing.T) {
 	}
 	dir := t.TempDir()
 	m := newWM(DefaultConfig(), nil, 80, 24)
-	script := `stty raw -echo; printf '\033]7501;?\033\\\033[c'; head -c 10 > ` + dir + `/reply; ` +
+	script := `stty raw -echo; printf '\033]7501;?\033\\\033[c'; head -c ` + strconv.Itoa(len(statusQueryReply)) + ` > ` + dir + `/reply; ` +
 		`printf '\033]7501;state=working:app=claude:progress=10\033\\'; ` +
 		`printf '\033]7501;state=blocked:kind=permission:id=t1:msg=` + b64("Allow edit?") + `\007'; ` +
 		`printf '\033]7501;state=bogus\007'; ` +

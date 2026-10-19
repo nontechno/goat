@@ -1,19 +1,31 @@
 package main
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // The help window (F1): every keyboard shortcut and mouse action, with the
-// keys as config.toml binds them. It is a regular window without a program,
+// keys as config.toml (and keymap.toml) bind them. Shortcuts can be changed
+// in it (keymap.go): ↑ ↓ choose one, Enter changes its key. It is a regular window without a program,
 // like the events window: move it, resize it, scroll it (arrows,
 // PageUp/PageDown, Home/End while it has the focus), select and copy from
 // it; other windows can be used while it is open. F1 shows it (focused),
 // and F1 again hides it, whether it has the focus or not; Alt+x hides it
 // too. Its contents are laid out for its width, again whenever it changes.
 
-// helpState is the help window and what it was last laid out for.
+// helpState is the help window, what it was last laid out for, and the
+// shortcut being changed in it (keymap.go).
 type helpState struct {
 	win    *Window
 	shownW int // the content width the text was written for (0: not yet)
+
+	sel       action            // the chosen shortcut (actNone: none)
+	capturing bool              // waiting for its new key
+	pending   *keyEdit          // a change waiting for Enter (a collision)
+	msg       string            // what happened last
+	rows      map[action][2]int // where each shortcut's lines are
+	clickAt   time.Time         // the last click on a shortcut
 }
 
 // isHelp reports whether w is the help window.
@@ -50,121 +62,178 @@ func (m *WM) syncHelp() {
 	m.writePanel(w, m.helpLines(w.contentW()), true) // panels.go
 }
 
-// helpSection is a heading and its (keys, what they do) rows.
+// rewriteHelp lays the help out again (a change of the chosen shortcut,
+// of a key, of the hint), keeping the view where it was; show brings the
+// chosen shortcut into view.
+func (m *WM) rewriteHelp(show bool) {
+	w := m.help.win
+	if w == nil || !m.helpShown() {
+		return
+	}
+	m.help.shownW = w.contentW()
+	m.writePanel(w, m.helpLines(w.contentW()), false)
+	if r, ok := m.help.rows[m.help.sel]; ok && show {
+		showPanelLines(w, max(r[0]-1, 0), r[1])
+	}
+	m.dirty = true
+}
+
+// helpSection is a heading and its rows.
 type helpSection struct {
 	title string
-	rows  [][2]string
+	rows  []helpRow
+}
+
+// helpRow is keys and what they do; a shortcut that can be changed has its
+// action.
+type helpRow struct {
+	keys, desc string
+	act        action
 }
 
 // helpText is everything the help window lists, with the keys as bound now.
 func (m *WM) helpText() []helpSection {
 	k := m.cfg.Keys
-	alt := func(keys ...string) string { // "Alt+h/j/k/l"
-		return "Alt+" + strings.Join(keys, "/")
-	}
+	alt := func(key string) string { return "Alt+" + key }
+	sc := func(act action, key, desc string) helpRow { return helpRow{alt(key), desc, act} }
+	fixed := func(keys, desc string) helpRow { return helpRow{keys, desc, actNone} }
 	return []helpSection{
-		{"Windows", [][2]string{
-			{alt(k.NewWindow), "new window (in the active window's directory)"},
-			{alt(k.FocusNext, k.FocusPrev), "focus the next / previous window"},
-			{"Alt+1 … 9", "focus window N (the number in its title)"},
-			{"Alt+0", "focus the background shell"},
-			{"Alt+0 again", "hide all floating windows (👻 in their tabs) / bring them back"},
-			{alt(k.PinWindow), "pin / unpin: keep the window above the others"},
-			{alt(k.SwapBackground), "swap the window's program with the background's"},
-			{alt(k.CloseWindow), "close the window (ends its program)"},
-			{alt(k.Quit), "quit goat (asks first while windows are open)"},
+		{"Windows", []helpRow{
+			sc(actNewWindow, k.NewWindow, "new window (in the active window's directory)"),
+			sc(actFocusNext, k.FocusNext, "focus the next window"),
+			sc(actFocusPrev, k.FocusPrev, "focus the previous window"),
+			fixed("Alt+1 … 9", "focus window N (the number in its title)"),
+			fixed("Alt+0", "focus the background shell"),
+			fixed("Alt+0 again", "hide all floating windows (👻 in their tabs) / bring them back"),
+			sc(actPinWindow, k.PinWindow, "pin / unpin: keep the window above the others"),
+			sc(actSwapBackground, k.SwapBackground, "swap the window's program with the background's"),
+			sc(actCloseWindow, k.CloseWindow, "close the window (ends its program); hides goat's own windows"),
+			sc(actQuit, k.Quit, "quit goat (asks first while windows are open)"),
 		}},
-		{"Move and resize", [][2]string{
-			{alt(k.MoveLeft, k.MoveDown, k.MoveUp, k.MoveRight), "move left / down / up / right"},
-			{"Alt+arrows", "move"},
-			{alt(k.ResizeLeft, k.ResizeDown, k.ResizeUp, k.ResizeRight), "narrower / taller / shorter / wider"},
-			{"Alt+Shift+arrows", "resize"},
+		{"Move and resize", []helpRow{
+			sc(actMoveLeft, k.MoveLeft, "move left"),
+			sc(actMoveDown, k.MoveDown, "move down"),
+			sc(actMoveUp, k.MoveUp, "move up"),
+			sc(actMoveRight, k.MoveRight, "move right"),
+			fixed("Alt+arrows", "move"),
+			sc(actResizeLeft, k.ResizeLeft, "narrower"),
+			sc(actResizeDown, k.ResizeDown, "taller"),
+			sc(actResizeUp, k.ResizeUp, "shorter"),
+			sc(actResizeRight, k.ResizeRight, "wider"),
+			fixed("Alt+Shift+arrows", "resize"),
 		}},
-		{"Colors", [][2]string{
-			{alt(k.Palette), "choose the window's palette: background and text colors (Enter keeps it, Esc doesn't)"},
+		{"Colors", []helpRow{
+			sc(actPalette, k.Palette, "choose the window's palette: background and text colors (Enter keeps it, Esc doesn't)"),
 		}},
-		{"History and long lines", [][2]string{
-			{"Alt+PageUp/PageDown", "scroll the history by a page"},
-			{"Alt+Shift+PageUp/Down", "scroll by 3 lines"},
-			{"Alt+Home/End", "the oldest line / back to the live view"},
-			{alt(k.ToggleWrap), "wrap long lines, or not ([] wrapping, [) not)"},
-			{alt(k.ScrollLeft, k.ScrollRight), "not wrapping: view left / right"},
+		{"History and long lines", []helpRow{
+			fixed("Alt+PageUp/PageDown", "scroll the history by a page"),
+			fixed("Alt+Shift+PageUp/Down", "scroll by 3 lines"),
+			fixed("Alt+Home/End", "the oldest line / back to the live view"),
+			sc(actToggleWrap, k.ToggleWrap, "wrap long lines, or not ([] wrapping, [) not)"),
+			sc(actScrollLeft, k.ScrollLeft, "not wrapping: view left"),
+			sc(actScrollRight, k.ScrollRight, "not wrapping: view right"),
 		}},
-		{"goat", [][2]string{
-			{m.panelKeyName("help"), "this help (again: hides it)"},
-			{m.panelKeyName("status"), "goat's status: version, windows, memory, CPU (again: hides it)"},
-			{m.panelKeyName("inventory"), "inventory: every window, its programs, memory, status (again: hides it)"},
-			{m.panelKeyName("events"), "events window: bells, notifications, exits, …"},
-			{alt(k.Settings), "settings (~/.config/goat/local.toml)"},
-			{alt(k.Repaint), "repaint the screen"},
+		{"goat", []helpRow{
+			fixed(m.panelKeyName("help"), "this help (again: hides it)"),
+			fixed(m.panelKeyName("status"), "goat's status: version, windows, memory, CPU (again: hides it)"),
+			fixed(m.panelKeyName("inventory"), "inventory: every window, its programs, memory, status (again: hides it)"),
+			sc(actShowEvents, k.ShowEvents, "events window: bells, notifications, exits, … (again: hides it)"),
+			sc(actSettings, k.Settings, "settings (~/.config/goat/local.toml)"),
+			sc(actRepaint, k.Repaint, "repaint the screen"),
 		}},
-		{"In goat's windows (events, help, status, inventory)", [][2]string{
-			{"↑ ↓ PageUp PageDown", "scroll"},
-			{"Home/End", "the top / the end"},
-			{alt(k.CloseWindow), "hide the window"},
+		{"In this window", []helpRow{
+			fixed("↑ ↓", "choose a shortcut above"),
+			fixed("Enter, double click", "change its key: press the new one (Esc: keep it)"),
+			fixed("Delete", "back to its built-in key"),
+			fixed("PageUp PageDown Home End", "scroll"),
 		}},
-		{"In the inventory (F3)", [][2]string{
-			{"↑ ↓ Home/End", "choose a window"},
-			{"Enter", "go to it (brings it back if hidden)"},
-			{"click / double click", "choose / go to it"},
+		{"In the events, status and inventory windows", []helpRow{
+			fixed("↑ ↓ PageUp PageDown", "scroll"),
+			fixed("Home/End", "the top / the end"),
 		}},
-		{"Mouse", [][2]string{
-			{"click", "focus a window (a status bar tab too)"},
-			{"drag the title bar", "move the window"},
-			{"drag an edge or corner", "resize the window"},
-			{"drag over text", "select it; copied to the clipboard"},
-			{"wheel", "scroll the history"},
-			{"Shift+wheel", "not wrapping: view left / right"},
+		{"In the inventory (F3)", []helpRow{
+			fixed("↑ ↓ Home/End", "choose a window"),
+			fixed("Enter", "go to it (brings it back if hidden)"),
+			fixed("click / double click", "choose / go to it"),
 		}},
-		{"Keys", [][2]string{
-			{"Esc, then a key", "the same as Alt+key (within alt_timeout_ms)"},
-			{"Option (macOS)", "works as Alt; goat -learn sets your terminal up"},
+		{"Mouse", []helpRow{
+			fixed("click", "focus a window (a status bar tab too)"),
+			fixed("drag the title bar", "move the window"),
+			fixed("drag an edge or corner", "resize the window"),
+			fixed("drag over text", "select it; copied to the clipboard"),
+			fixed("wheel", "scroll the history"),
+			fixed("Shift+wheel", "not wrapping: view left / right"),
+		}},
+		{"Keys", []helpRow{
+			fixed("Esc, then a key", "the same as Alt+key (within alt_timeout_ms)"),
+			fixed("Option (macOS)", "works as Alt; goat -learn sets your terminal up"),
 		}},
 	}
 }
 
 // helpLines lays the help text out for a width: a column of keys and one
 // of descriptions (wrapped under it), or keys above descriptions when the
-// window is narrow.
+// window is narrow. Under the title, a line says what to press (or what
+// happened); the chosen shortcut is shown reversed. It records where each
+// shortcut's lines are (help.rows).
 func (m *WM) helpLines(width int) []string {
-	const bold, plain = "\x1b[1m", "\x1b[0m"
+	const bold, plain, rev = "\x1b[1m", "\x1b[0m", "\x1b[7m"
 	keyW := 0
 	for _, s := range m.helpText() {
 		for _, r := range s.rows {
-			keyW = max(keyW, textWidth(r[0]))
+			keyW = max(keyW, textWidth(r.keys))
 		}
 	}
 	keyW = min(keyW, 30)
 	twoCols := width >= keyW+2+24
 	descW := max(width-keyW-2, 10)
-	lines := []string{bold + "goat: keys and mouse" + plain, ""}
+	lines := []string{bold + "goat: keys and mouse" + plain}
+	hint := m.helpHint()
+	style := "\x1b[2m" // dim, when it only says what to press
+	if m.help.pending != nil || m.help.capturing || m.help.msg != "" {
+		style = bold
+	}
+	for _, l := range wrapWords(hint, max(width, 10)) {
+		lines = append(lines, style+fitStart(l, width)+plain)
+	}
+	lines = append(lines, "")
+	m.help.rows = map[action][2]int{}
 	for _, s := range m.helpText() {
 		lines = append(lines, bold+s.title+plain)
 		for _, r := range s.rows {
+			first := len(lines)
 			if !twoCols {
-				lines = append(lines, "  "+r[0])
-				for _, d := range wrapWords(r[1], max(width-4, 10)) {
+				lines = append(lines, "  "+r.keys)
+				for _, d := range wrapWords(r.desc, max(width-4, 10)) {
 					lines = append(lines, "    "+d)
 				}
+			} else {
+				key := r.keys
+				pad := keyW - textWidth(key)
+				if pad < 0 { // a long key gets its own line
+					lines = append(lines, key)
+					key, pad = "", keyW
+				}
+				for i, d := range wrapWords(r.desc, descW) {
+					if i == 0 {
+						lines = append(lines, key+strings.Repeat(" ", pad)+"  "+d)
+					} else {
+						lines = append(lines, strings.Repeat(" ", keyW+2)+d)
+					}
+				}
+			}
+			if r.act == actNone {
 				continue
 			}
-			key := r[0]
-			pad := keyW - textWidth(key)
-			if pad < 0 { // a long key gets its own line
-				lines = append(lines, key)
-				key, pad = "", keyW
-			}
-			desc := wrapWords(r[1], descW)
-			for i, d := range desc {
-				if i == 0 {
-					lines = append(lines, key+strings.Repeat(" ", pad)+"  "+d)
-				} else {
-					lines = append(lines, strings.Repeat(" ", keyW+2)+d)
+			m.help.rows[r.act] = [2]int{first, len(lines) - 1}
+			if r.act == m.help.sel { // the chosen shortcut, reversed across the window
+				for i := first; i < len(lines); i++ {
+					lines[i] = rev + lines[i] + strings.Repeat(" ", max(width-textWidth(lines[i]), 0)) + plain
 				}
 			}
 		}
 		lines = append(lines, "")
 	}
-	lines = append(lines, "More: README.md, aliasing.md, scripting.md. Keys are set in config.toml [keys].")
+	lines = append(lines, "More: README.md, aliasing.md, scripting.md. Changed shortcuts are kept in ~/.config/goat/keymap.toml.")
 	return lines
 }

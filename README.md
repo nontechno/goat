@@ -71,6 +71,19 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   time goat starts. See [palettes.md](palettes.md)
 - Keyboard-driven window management, plus mouse: drag the title bar to move,
   drag the left/right/bottom edges or bottom corners to resize, click to focus
+- Programs that ask the terminal more get answers: XTVERSION (`goat
+  <version>`), the cell and window size (pixels from goat's own terminal,
+  when it says), dark or light (`CSI ? 996 n`, and reports while mode 2031 is
+  on: when a palette or the terminal's colors change), and OSC 7501's query
+  with the states and kinds goat understands, ahead of any later reply.
+  Kitty notifications sent in pieces (OSC 99, as Claude Code does) are put
+  together into one event
+- Kitty's keyboard protocol and xterm's modifyOtherKeys, per window and per
+  screen, as programs ask for them: Shift+Enter reaches Claude Code as
+  `CSI 13;2u`, Ctrl+i is not Tab, Esc is not the start of Alt+key. goat asks
+  its own terminal for the same (`keyboard_enhancements`, on by default) so
+  it can tell those keys apart; in terminals that can't (macOS Terminal)
+  they stay as they were
 - 24-bit color ("true color") is passed through exactly when the terminal
   has it, else rounded to the nearest of the 256 colors. goat works out
   which from `COLORTERM`, `TERM` and terminfo, and recognizes iTerm2 even
@@ -147,6 +160,12 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   events window: move it, resize it (the text is laid out again for the new
   width), scroll it, copy from it, and keep working in other windows
   meanwhile. F1 again hides it, whether or not it has the focus (Alt+x too)
+- Shortcuts can be changed in the help window: ↑ ↓ choose one, Enter, then
+  press the new key (Alt+key or the key alone; Esc keeps the old one). A key
+  another shortcut has is a collision: goat says which, and Enter swaps the
+  two (Esc changes nothing); Delete puts a shortcut back to its built-in key.
+  Changes apply at once and are kept in `~/.config/goat/keymap.toml`, read
+  at start over config.toml's `[keys]`
 - Status window (F2): goat itself. Version and build, since when and where
   it runs, its files (config, local, aliases, log); and, refreshed every
   second, the windows (floating, hidden, pinned, goat's own), the processes

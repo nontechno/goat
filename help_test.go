@@ -36,7 +36,7 @@ func TestHelpToggle(t *testing.T) {
 		t.Errorf("help window:\n%s", text)
 	}
 	all := strings.Join(m.helpLines(80), "\n")
-	for _, want := range []string{"Windows", "new window", "F1", "Alt+o", "Alt+h/j/k/l", "Mouse", "Esc, then a key"} {
+	for _, want := range []string{"Windows", "new window", "F1", "Alt+o", "Alt+h", "move left", "Mouse", "Esc, then a key"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("help lacks %q:\n%s", want, all)
 		}

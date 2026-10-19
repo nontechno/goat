@@ -33,8 +33,9 @@ type hostScreen struct {
 	blink       bool
 	cursorColor string // "#rrggbb" last set with OSC 12; "" = terminal default
 
-	mouse   bool // mouse reporting is on (setup)
-	repaint bool // the next frame rewrites everything (see repaintAll)
+	mouse    bool // mouse reporting is on (setup)
+	keyboard bool // enhanced key reports asked for (keyboard_enhancements; keyboard.go)
+	repaint  bool // the next frame rewrites everything (see repaintAll)
 }
 
 func newHostScreen(out io.Writer, env []string, w, h int) *hostScreen {
@@ -63,9 +64,16 @@ func (s *hostScreen) setup(mouse bool) error {
 	var b bytes.Buffer
 	s.mouse = mouse
 	b.WriteString(ansi.SetModeAltScreenSaveCursor + ansi.HideCursor)
+	if s.keyboard {
+		b.WriteString("\x1b[>5u") // a kitty keyboard entry of goat's own (popped at teardown)
+	}
 	s.writeModes(&b)
-	// Ask for the host's default colors (see WM.setHostColors).
+	// Ask for the host's default colors (see WM.setHostColors), its cell
+	// size in pixels, and to be told when it turns dark or light (mode
+	// 2031); programs in windows asking for these get them
+	// (termreplies.go). Terminals that don't know them say nothing.
 	b.WriteString(ansi.RequestForegroundColor + ansi.RequestBackgroundColor)
+	b.WriteString("\x1b[16t" + "\x1b[?2031h" + "\x1b[?996n")
 	_, err := s.out.Write(b.Bytes())
 	return err
 }
@@ -77,7 +85,10 @@ func (s *hostScreen) teardown(mouse bool) {
 	if mouse {
 		_ = uv.EncodeMouseMode(&b, uv.MouseModeNone)
 	}
-	b.WriteString(ansi.ResetModeFocusEvent + ansi.ResetModeBiDirectionalSupport)
+	b.WriteString(ansi.ResetModeFocusEvent + ansi.ResetModeBiDirectionalSupport + "\x1b[?2031l")
+	if s.keyboard {
+		b.WriteString("\x1b[<u" + "\x1b[>4m") // the keyboard as it was
+	}
 	if s.cursorColor != "" {
 		b.WriteString(ansi.ResetCursorColor)
 	}
@@ -99,6 +110,12 @@ func (s *hostScreen) teardown(mouse bool) {
 // They are written again with every repaint, in case something reset them.
 func (s *hostScreen) writeModes(b *bytes.Buffer) {
 	b.WriteString(ansi.SetModeBracketedPaste + ansi.SetModeFocusEvent + ansi.SetModeBiDirectionalSupport)
+	if s.keyboard {
+		// Kitty keyboard flags 1 + 4 (disambiguate, alternate keys) on the
+		// entry setup pushed (repeating this changes nothing), and
+		// modifyOtherKeys 2 for terminals with only that (keyboard.go).
+		b.WriteString("\x1b[=5;1u" + "\x1b[>4;2m")
+	}
 	if s.mouse {
 		_ = uv.EncodeMouseMode(b, uv.MouseModeDrag)
 	}

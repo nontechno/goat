@@ -84,9 +84,16 @@ type WM struct {
 
 	hostFg, hostBg color.Color // host terminal default colors, once known
 	combos         *comboSet   // palettes (combos.go; nil: none)
+	// keymap.toml (keymap.go), and the keys config.toml gave (what it
+	// saves differences from).
+	keymapPath string
+	keysBase   KeyConfig
 	// 24-bit color to the terminal and its programs, and why (truecolor.go).
 	trueColor    bool
 	trueColorWhy string
+	// A character cell in pixels, as the terminal told goat (0: not
+	// known); programs asking get it (termreplies.go).
+	cellW, cellH int
 	lingo        int // the palette names' style (comboLingos)
 	// local.toml, and the background window's colors saved there (desk;
 	// deskKnown: there are some). No localPath: nothing is saved.
@@ -188,7 +195,7 @@ func (m *WM) snapshot() string {
 
 func (m *WM) startBackground() error {
 	win, err := newWindow(0, m.shell(), 0, 0, m.cols, m.areaH(), winOpts{
-		trueColor:  m.trueColor,
+		trueColor: m.trueColor, cell: m.cellSize,
 		background: true, scrollback: m.cfg.ScrollbackLines, dir: m.dir,
 		nowrap: !m.cfg.WrapLines, nowrapW: m.cfg.NowrapWidth,
 	}, m.out)
@@ -395,7 +402,7 @@ func (m *WM) openWindow(o openSpec) (*Window, error) {
 		y = 0
 	}
 	opts := winOpts{
-		trueColor: m.trueColor,
+		trueColor: m.trueColor, cell: m.cellSize,
 		decorated: decorated, frame: o.frame,
 		scrollback: m.cfg.ScrollbackLines, dir: o.dir,
 		nowrap: !o.wrap, nowrapW: m.cfg.NowrapWidth, command: o.command,
@@ -735,6 +742,17 @@ func (m *WM) handleKey(k uv.Key) error {
 		m.paletteKey(k)
 		return nil
 	}
+	// The help window waiting for a shortcut's new key, or for Enter / Esc
+	// on a collision (keymap.go): every key goes there, Esc and Alt+keys
+	// included.
+	if h := &m.help; (h.capturing || h.pending != nil) && m.isHelp(m.focused) && !m.pasting {
+		if h.capturing {
+			m.helpCapture(k)
+		} else {
+			m.helpKey(k)
+		}
+		return nil
+	}
 	// goat's own windows: F1 help, F2 status, F3 inventory, or the keys
 	// system.toml gives them (system.go).
 	if name := m.panelForKey(k); name != "" && !m.pasting {
@@ -797,7 +815,7 @@ func (m *WM) handleKey(k uv.Key) error {
 	}
 	if w := m.focused; w != nil {
 		m.clearSelectionIn(w)
-		m.sendFocused(encodeKey(k, w.appCursor)) // redraws if it was scrolled back
+		m.sendFocused(w.encodeKey(k)) // as the program asked for keys (keyboard.go); redraws if it was scrolled back
 	}
 	return nil
 }
@@ -957,6 +975,9 @@ func (m *WM) handleMouse(ev uv.MouseEvent) {
 				if m.isInventory(w) { // choose the window clicked (inventory.go)
 					m.inventoryClick(m.sel.anchor.line)
 				}
+				if m.isHelp(w) { // choose the shortcut clicked (keymap.go)
+					m.helpClick(m.sel.anchor.line)
+				}
 				return
 			}
 		case mo.Button != uv.MouseLeft:
@@ -1043,7 +1064,7 @@ func (m *WM) handleMouse(ev uv.MouseEvent) {
 			// less, man and friends scroll.
 			if k := wheelKey(mo.Button); k != 0 {
 				for range 3 {
-					w.send(encodeKey(uv.Key{Code: k}, w.appCursor))
+					w.send(w.encodeKey(uv.Key{Code: k}))
 				}
 			}
 		default:
@@ -1281,3 +1302,6 @@ func (m *WM) backgroundTone(w *Window) tone {
 	}
 	return toneDark
 }
+
+// cellSize is a character cell in pixels (0, 0 if the terminal didn't say).
+func (m *WM) cellSize() (int, int) { return m.cellW, m.cellH }

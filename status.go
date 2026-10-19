@@ -20,8 +20,12 @@ import (
 // and _ . , + / = - only; free text (msg, title) is base64 UTF-8. goat keeps
 // one record per id (no id = the root record) for each window, replaced
 // whole by every report, and lists every message in the events window.
-// A query, ESC ] 7501 ; ? ST, is answered with ESC ] 7501 ; ? ST
-// (supported, with the default states and kinds).
+// A query, ESC ] 7501 ; ? ST, is answered with
+// ESC ] 7501 ; ? : states=idle,working,done,blocked,error,clear :
+// kinds=permission,question,auth ST (without the spaces): supported, and
+// what goat understands. It goes out before any reply to a query sent
+// after it (Claude Code sends no reports when the device-attributes reply
+// comes first).
 //
 // What goat does with each kind of report is in the onStatus* methods at
 // the end of this file (empty for now).
@@ -56,7 +60,7 @@ const (
 	statusMaxSegment   = 32
 	statusMaxDepth     = 8
 	statusMaxRecords   = 256 // per window; the least recently updated goes
-	statusQueryReply   = "\x1b]7501;?\x1b\\"
+	statusQueryReply   = "\x1b]7501;?:states=idle,working,done,blocked,error,clear:kinds=permission,question,auth\x1b\\"
 	statusOSCOverhead  = len("\x1b]") + len("\x1b\\")
 	statusOSCPrefix    = "7501;"
 	statusQueryPayload = "?"

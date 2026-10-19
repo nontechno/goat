@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"image/color"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -156,6 +157,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 		cols, rows = 80, 24
 	}
 	scr := newHostScreen(out, os.Environ(), cols, rows)
+	scr.keyboard = cfg.KeyboardEnhancements                               // Shift+Enter & co. (keyboard.go)
 	trueColor, trueWhy := hostTrueColor(cfg.TrueColor, out, os.Environ()) // truecolor.go
 	scr.rend.SetColorProfile(colorProfile(trueColor))
 	logger.Info("colors", "true_color", trueColor, "because", trueWhy, "setting", cfg.TrueColor)
@@ -217,7 +219,12 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 		cfg.WrapLines = *lc.WrapLines // this machine's starting state (local.toml)
 		logger.Info("wrap_lines from local.toml", "wrap_lines", cfg.WrapLines)
 	}
+	// keymap.toml: shortcuts changed in the help window (keymap.go), over
+	// config.toml's [keys].
+	keysBase, kmPath := cfg.Keys, keymapPath()
+	warns = append(warns, loadKeymap(kmPath, cfg)...)
 	m := newWM(cfg, warns, cols, rows)
+	m.keymapPath, m.keysBase = kmPath, keysBase
 	m.localPath, m.desk, m.deskKnown = localPath, desk, deskKnown
 	m.trueColor, m.trueColorWhy = trueColor, trueWhy
 	m.cfgPath = cfgPath
@@ -433,6 +440,15 @@ func (m *WM) handleEvent(ev uv.Event, scr *hostScreen) error {
 		// meanwhile (a program writing to it directly, a reset, ...),
 		// draw everything again.
 		m.repaint()
+	case uv.CellSizeEvent: // CSI 16 t answered (screen.go setup)
+		if ev.Width > 0 && ev.Height > 0 {
+			m.cellW, m.cellH = ev.Width, ev.Height
+			logger.Info("cell size", "width", ev.Width, "height", ev.Height)
+		}
+	case uv.DarkColorSchemeEvent, uv.LightColorSchemeEvent:
+		// The terminal turned dark or light: ask for its colors again;
+		// windows whose programs asked are told (termreplies.go).
+		_, _ = io.WriteString(scr.out, ansi.RequestForegroundColor+ansi.RequestBackgroundColor)
 	case uv.ForegroundColorEvent:
 		m.setHostColors(ev.Color, nil)
 	case uv.BackgroundColorEvent:
@@ -468,6 +484,7 @@ func (m *WM) applyHostColors(w *Window) {
 	case m.hostBg != nil:
 		w.emu.SetDefaultBackgroundColor(m.hostBg)
 	}
+	w.reportScheme(false) // dark / light, to programs that asked (termreplies.go)
 }
 
 // render draws one frame, with the host cursor at the focused program's

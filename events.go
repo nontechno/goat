@@ -139,6 +139,98 @@ func (m *WM) hookEvents(w *Window) {
 	w.onStatus = func(data []byte) { m.handleStatusOSC(w, data) }
 	w.onPrompt = func(data []byte) { m.handlePromptOSC(w, data) }
 	w.onReset = func() { m.statusReset(w) }
+	w.schemeTone = func() tone { return m.backgroundTone(w) }
+}
+
+// kittyNote is a kitty notification (OSC 99) being put together.
+type kittyNote struct {
+	title, body string
+	shown       string    // what was shown for it ("" if not yet)
+	at          time.Time // last piece
+}
+
+// kittyNoteKeep is how long a shown notification's id is remembered, so
+// pieces that only end it (Claude Code's last, empty "d=1:a=focus" one)
+// don't show it again.
+const kittyNoteKeep = 10 * time.Second
+
+// kittyNotification puts a kitty notification together from its pieces
+// (OSC 99 ; metadata ; payload; kitty's desktop-notifications spec):
+// pieces with the same id (i=) add to its title or body (p=title, p=body;
+// title if not said; e=1: base64); d=0 says more pieces follow, and
+// without it (d=1, the default) the notification is complete and shown,
+// as "title: body". A piece that brings nothing new (an empty payload, or
+// the same text again) doesn't show it twice. Claude Code sends:
+//
+//	OSC 99 ; i=2325:d=0:p=title ; Claude Code
+//	OSC 99 ; i=2325:p=body ; Claude needs your permission    → shown
+//	OSC 99 ; i=2325:d=1:a=focus ;                            → (nothing new)
+//
+// Other uses of OSC 99 (p=? queries, p=close, icons, …) show nothing.
+func (w *Window) kittyNotification(osc []byte, now time.Time) (string, bool) {
+	_, rest, _ := strings.Cut(string(osc), ";")
+	meta, payload, found := strings.Cut(rest, ";")
+	if !found {
+		return "", false
+	}
+	id, part, done, b64 := "", "title", true, false
+	for _, kv := range strings.Split(meta, ":") {
+		k, v, _ := strings.Cut(kv, "=")
+		switch k {
+		case "i":
+			id = v
+		case "p":
+			part = v
+		case "d":
+			done = v != "0"
+		case "e":
+			b64 = v == "1"
+		}
+	}
+	if part != "title" && part != "body" {
+		return "", false
+	}
+	if b64 && payload != "" {
+		b, err := base64.StdEncoding.DecodeString(payload)
+		if err != nil {
+			return "", false
+		}
+		payload = string(b)
+	}
+	if w.notes == nil {
+		w.notes = map[string]*kittyNote{}
+	}
+	for k, n := range w.notes { // forget old ones
+		if now.Sub(n.at) > kittyNoteKeep {
+			delete(w.notes, k)
+		}
+	}
+	n := w.notes[id]
+	if n == nil || (n.shown != "" && payload != "") {
+		n = &kittyNote{} // (new text for one already shown: it replaces it)
+		w.notes[id] = n
+	}
+	n.at = now
+	if part == "title" {
+		n.title += payload
+	} else {
+		n.body += payload
+	}
+	if !done {
+		return "", false
+	}
+	text := n.title
+	switch {
+	case n.title == "":
+		text = n.body
+	case n.body != "":
+		text = n.title + ": " + n.body
+	}
+	if strings.TrimSpace(text) == "" || text == n.shown {
+		return "", false
+	}
+	n.shown = text
+	return text, true
 }
 
 // parseNotification turns a desktop-notification OSC into its text:

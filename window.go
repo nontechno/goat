@@ -76,6 +76,17 @@ type Window struct {
 	// status reports, prompt marks (OSC 133) and full resets go.
 	status   statusStore
 	onStatus func(data []byte)
+	// Color scheme reports (mode 2031, termreplies.go): set by the
+	// program; what it was last told (0: nothing, 1 + tone); how to find
+	// out whether the window is dark or light (set by the WM).
+	schemeReports bool
+	schemeSent    int
+	schemeTone    func() tone
+	// Kitty notifications (OSC 99) being put together from their
+	// pieces, by id (events.go).
+	notes map[string]*kittyNote
+	// Keyboard protocols the program asked for (keyboard.go).
+	kbd      keyboardState
 	onPrompt func(data []byte)
 	onReset  func()
 
@@ -158,13 +169,14 @@ func (w *Window) contentH() int { return max(w.h-w.chromeH(), 1) }
 type winOpts struct {
 	decorated  bool // title bar (mouse enabled)
 	frame      frameStyle
-	background bool     // borderless full-screen background shell
-	scrollback int      // history lines
-	dir        string   // working directory ("" = inherit)
-	nowrap     bool     // long lines run past the right edge (wrap_lines = false)
-	nowrapW    int      // emulator width when not wrapping (nowrap_width)
-	command    []string // program and arguments ("": the shell)
-	trueColor  bool     // tell the program COLORTERM=truecolor (truecolor.go)
+	background bool                       // borderless full-screen background shell
+	scrollback int                        // history lines
+	dir        string                     // working directory ("" = inherit)
+	nowrap     bool                       // long lines run past the right edge (wrap_lines = false)
+	nowrapW    int                        // emulator width when not wrapping (nowrap_width)
+	command    []string                   // program and arguments ("": the shell)
+	trueColor  bool                       // tell the program COLORTERM=truecolor (truecolor.go)
+	cell       func() (width, height int) // a character cell in pixels, as goat's terminal told it (0: not known)
 }
 
 // newWindow starts shell in a PTY sized to the window's content area.
@@ -200,70 +212,7 @@ func newWindow(id int, shell string, x, y, w, h int, o winOpts, out chan<- ptyMs
 	win.emu = vt.NewEmulator(win.emuWidth(cw), ch)
 	win.emu.SetLogger(vtLogger{win: id}) // log_level = "debug": unhandled sequences
 	win.emu.SetScrollbackSize(o.scrollback)
-	// OSC 52: a program in the window sets the clipboard (vim, tmux, ...).
-	win.emu.RegisterOscHandler(52, func(data []byte) bool {
-		if win.onClipboard != nil {
-			win.onClipboard(data)
-		}
-		return true
-	})
-	// Desktop notifications (OSC 9, 777, 99) go to the events window.
-	for _, cmd := range []int{9, 777, 99} {
-		win.emu.RegisterOscHandler(cmd, func(data []byte) bool {
-			text, ok := parseNotification(data)
-			if ok && win.onEvent != nil {
-				win.onEvent(evNotify, text)
-			}
-			return true
-		})
-	}
-	// Program status (OSC 7501) and shell prompt marks (OSC 133).
-	win.emu.RegisterOscHandler(7501, func(data []byte) bool {
-		if win.onStatus != nil {
-			win.onStatus(data)
-		} else if string(data) == "7501;?" {
-			win.replyStatusQuery()
-		}
-		return true
-	})
-	win.emu.RegisterOscHandler(133, func(data []byte) bool {
-		if win.onPrompt != nil {
-			win.onPrompt(data)
-		}
-		return true
-	})
-	win.emu.SetCallbacks(vt.Callbacks{
-		Reset: func() {
-			if win.onReset != nil {
-				win.onReset()
-			}
-		},
-		Bell: func() {
-			if win.onEvent != nil {
-				win.onEvent(evBell, "")
-			}
-		},
-		Title: func(s string) {
-			// Listed in the events window when it changes (not when a
-			// prompt sets the same title again); runs of "Action
-			// Required" and spinner titles once each (titles.go).
-			if s != win.oscTitle && win.onEvent != nil {
-				if kind, text, ok := win.titles.next(s); ok {
-					win.onEvent(kind, text)
-				}
-			}
-			win.oscTitle = s
-		},
-		WorkingDirectory: func(s string) { win.oscDir = parseOSC7(s) },
-		CursorVisibility: func(v bool) { win.cursorVisible = v },
-		CursorStyle: func(s vt.CursorStyle, steady bool) {
-			// x/vt passes "steady", not "blink": CSI 5 q (blinking bar)
-			// arrives as (bar, false), CSI 2 q (steady block) as (block, true).
-			win.cursorShape, win.cursorBlink = uv.CursorShape(s), !steady
-		},
-		EnableMode:  func(m ansi.Mode) { win.setMode(m, true) },
-		DisableMode: func(m ansi.Mode) { win.setMode(m, false) },
-	})
+	win.installHooks(o.cell)
 
 	// Input path: keys we encode and the emulator's own replies (cursor
 	// position reports, device attributes, mouse, paste) are queued without
@@ -336,6 +285,11 @@ func (w *Window) setMode(m ansi.Mode, on bool) {
 	case ansi.ModeMouseX10, ansi.ModeMouseNormal, ansi.ModeMouseHighlight,
 		ansi.ModeMouseButtonEvent, ansi.ModeMouseAnyEvent:
 		w.mouseModes[d] = on
+	case modeColorScheme: // 2031: dark / light reports (termreplies.go)
+		w.schemeReports, w.schemeSent = on, 0
+		if on {
+			w.reportScheme(false)
+		}
 	}
 }
 
@@ -753,5 +707,89 @@ func ptyControl(f *os.File, fn func(fd int)) {
 func setWinsize(f *os.File, cols, rows int) {
 	ptyControl(f, func(fd int) {
 		_ = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
+	})
+}
+
+// installHooks registers what goat does with a program's sequences on the
+// window's emulator: clipboard, notifications, status, prompt marks, the
+// replies of termreplies.go, and the callbacks (bell, title, modes, ...).
+// cell is the size of a character cell in pixels (nil: not known).
+func (win *Window) installHooks(cell func() (int, int)) {
+	// OSC 52: a program in the window sets the clipboard (vim, tmux, ...).
+	win.emu.RegisterOscHandler(52, func(data []byte) bool {
+		if win.onClipboard != nil {
+			win.onClipboard(data)
+		}
+		return true
+	})
+	// Desktop notifications (OSC 9, 777, 99) go to the events window;
+	// kitty's (99) may come in pieces (events.go kittyNotification).
+	for _, cmd := range []int{9, 777, 99} {
+		win.emu.RegisterOscHandler(cmd, func(data []byte) bool {
+			text, ok := "", false
+			if cmd == 99 {
+				text, ok = win.kittyNotification(data, time.Now())
+			} else {
+				text, ok = parseNotification(data)
+			}
+			if ok && win.onEvent != nil {
+				win.onEvent(evNotify, text)
+			}
+			return true
+		})
+	}
+	// XTVERSION, sizes, color scheme (termreplies.go).
+	if cell == nil {
+		cell = func() (int, int) { return 0, 0 }
+	}
+	win.installReplies(cell)
+	win.installKeyboard() // kitty keyboard protocol, modifyOtherKeys (keyboard.go)
+	// Program status (OSC 7501) and shell prompt marks (OSC 133).
+	win.emu.RegisterOscHandler(7501, func(data []byte) bool {
+		if win.onStatus != nil {
+			win.onStatus(data)
+		} else if string(data) == "7501;?" {
+			win.replyStatusQuery()
+		}
+		return true
+	})
+	win.emu.RegisterOscHandler(133, func(data []byte) bool {
+		if win.onPrompt != nil {
+			win.onPrompt(data)
+		}
+		return true
+	})
+	win.emu.SetCallbacks(vt.Callbacks{
+		Reset: func() {
+			win.resetKeyboard()
+			if win.onReset != nil {
+				win.onReset()
+			}
+		},
+		Bell: func() {
+			if win.onEvent != nil {
+				win.onEvent(evBell, "")
+			}
+		},
+		Title: func(s string) {
+			// Listed in the events window when it changes (not when a
+			// prompt sets the same title again); runs of "Action
+			// Required" and spinner titles once each (titles.go).
+			if s != win.oscTitle && win.onEvent != nil {
+				if kind, text, ok := win.titles.next(s); ok {
+					win.onEvent(kind, text)
+				}
+			}
+			win.oscTitle = s
+		},
+		WorkingDirectory: func(s string) { win.oscDir = parseOSC7(s) },
+		CursorVisibility: func(v bool) { win.cursorVisible = v },
+		CursorStyle: func(s vt.CursorStyle, steady bool) {
+			// x/vt passes "steady", not "blink": CSI 5 q (blinking bar)
+			// arrives as (bar, false), CSI 2 q (steady block) as (block, true).
+			win.cursorShape, win.cursorBlink = uv.CursorShape(s), !steady
+		},
+		EnableMode:  func(m ansi.Mode) { win.setMode(m, true) },
+		DisableMode: func(m ansi.Mode) { win.setMode(m, false) },
 	})
 }

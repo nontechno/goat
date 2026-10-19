@@ -167,7 +167,12 @@ func bindingRune(k uv.Key) (rune, bool) {
 		return 0, false
 	}
 	r := k.Code
-	if k.Mod.Contains(uv.ModShift) && r >= 'a' && r <= 'z' {
+	switch {
+	case k.Mod.Contains(uv.ModShift) && k.ShiftedCode >= 0x20 && k.ShiftedCode < uv.KeyExtended:
+		// The terminal says which key Shift made (kitty keyboard
+		// protocol, alternate keys): Alt+Shift+, is Alt+<.
+		r = k.ShiftedCode
+	case k.Mod.Contains(uv.ModShift) && r >= 'a' && r <= 'z':
 		r = r - 'a' + 'A'
 	}
 	return r, true

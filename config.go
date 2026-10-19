@@ -196,6 +196,12 @@ type Config struct {
 	// "off" (truecolor.go).
 	TrueColor string `toml:"true_color"`
 
+	// Ask the terminal goat runs in to report keys the classic encoding
+	// can't tell apart (Shift+Enter, Ctrl+i / Tab, Esc / Alt): kitty's
+	// keyboard protocol, else xterm's modifyOtherKeys (keyboard.go).
+	// Terminals that know neither are unaffected.
+	KeyboardEnhancements bool `toml:"keyboard_enhancements"`
+
 	// Copying selected text: via the terminal (OSC 52, works over SSH) and/or
 	// by piping it to a command ("" = detect one: tmux, clip.exe, pbcopy,
 	// wl-copy, xclip, xsel; "none" = no command).
@@ -218,21 +224,22 @@ type Config struct {
 // DefaultConfig returns the built-in configuration.
 func DefaultConfig() *Config {
 	c := &Config{
-		AltTimeoutMs:    200,
-		MacOptionKeys:   "auto",
-		MacOptionArrows: "auto",
-		PollIntervalMs:  16,
-		ScrollbackLines: 1000,
-		WrapLines:       true,
-		LogLevel:        "info",
-		NowrapWidth:     512,
-		TitleSource:     "process",
-		TrueColor:       "auto",
-		Frame:           "full",
-		ClipboardOSC52:  true,
-		ShowHost:        true,
-		ShowGit:         true,
-		ShowUser:        true,
+		AltTimeoutMs:         200,
+		MacOptionKeys:        "auto",
+		MacOptionArrows:      "auto",
+		PollIntervalMs:       16,
+		ScrollbackLines:      1000,
+		WrapLines:            true,
+		LogLevel:             "info",
+		NowrapWidth:          512,
+		TitleSource:          "process",
+		TrueColor:            "auto",
+		KeyboardEnhancements: true,
+		Frame:                "full",
+		ClipboardOSC52:       true,
+		ShowHost:             true,
+		ShowGit:              true,
+		ShowUser:             true,
 		Theme: ThemeConfig{
 			FocusedBorder:       idx(14),
 			UnfocusedBorder:     idx(8),
@@ -372,48 +379,7 @@ func (c *Config) finish(md *toml.MetaData) []string {
 	clampRatio("new_window_width_ratio", &l.NewWindowWidthRatio)
 	clampRatio("new_window_height_ratio", &l.NewWindowHeightRatio)
 
-	c.bindings = map[rune]action{}
-	for _, b := range []struct {
-		name string
-		val  *string
-		def  string
-		act  action
-	}{
-		{"new_window", &c.Keys.NewWindow, "c", actNewWindow},
-		{"focus_next", &c.Keys.FocusNext, "n", actFocusNext},
-		{"focus_prev", &c.Keys.FocusPrev, "p", actFocusPrev},
-		{"quit", &c.Keys.Quit, "q", actQuit},
-		{"close_window", &c.Keys.CloseWindow, "x", actCloseWindow},
-		{"move_left", &c.Keys.MoveLeft, "h", actMoveLeft},
-		{"move_down", &c.Keys.MoveDown, "j", actMoveDown},
-		{"move_up", &c.Keys.MoveUp, "k", actMoveUp},
-		{"move_right", &c.Keys.MoveRight, "l", actMoveRight},
-		{"resize_left", &c.Keys.ResizeLeft, "H", actResizeLeft},
-		{"resize_down", &c.Keys.ResizeDown, "J", actResizeDown},
-		{"resize_up", &c.Keys.ResizeUp, "K", actResizeUp},
-		{"resize_right", &c.Keys.ResizeRight, "L", actResizeRight},
-		{"pin_window", &c.Keys.PinWindow, "w", actPinWindow},
-		{"palette", &c.Keys.Palette, "t", actPalette},
-		{"toggle_wrap", &c.Keys.ToggleWrap, "z", actToggleWrap},
-		{"scroll_left", &c.Keys.ScrollLeft, "<", actScrollLeft},
-		{"scroll_right", &c.Keys.ScrollRight, ">", actScrollRight},
-		{"show_events", &c.Keys.ShowEvents, "-", actShowEvents},
-		{"swap_background", &c.Keys.SwapBackground, "s", actSwapBackground},
-		{"repaint", &c.Keys.Repaint, "r", actRepaint},
-		{"settings", &c.Keys.Settings, "o", actSettings},
-	} {
-		r, size := utf8.DecodeRuneInString(*b.val)
-		if *b.val == "" || size != len(*b.val) || (r >= '0' && r <= '9') {
-			warn("keys.%s %q: want a single non-digit character (using %q)", b.name, *b.val, b.def)
-			*b.val = b.def
-			r = rune(b.def[0])
-		}
-		if prev, dup := c.bindings[r]; dup && prev != b.act {
-			warn("keys.%s %q is already bound; ignoring", b.name, *b.val)
-			continue
-		}
-		c.bindings[r] = b.act
-	}
+	warns = append(warns, c.bindKeys()...)
 	switch c.MacOptionKeys {
 	case "auto", "on", "off":
 	default:
@@ -478,4 +444,74 @@ func parseConfig(data string) (*Config, []string) {
 		return DefaultConfig(), []string{"parse error, using defaults: " + err.Error()}
 	}
 	return cfg, cfg.finish(&md)
+}
+
+// keySpec is one Alt+key shortcut: its name in [keys], where its key is,
+// the built-in key and the action.
+type keySpec struct {
+	name string
+	val  *string
+	def  string
+	act  action
+}
+
+// keySpecs are the shortcuts, in the order the help window lists them.
+func (c *Config) keySpecs() []keySpec {
+	k := &c.Keys
+	return []keySpec{
+		{"new_window", &k.NewWindow, "c", actNewWindow},
+		{"focus_next", &k.FocusNext, "n", actFocusNext},
+		{"focus_prev", &k.FocusPrev, "p", actFocusPrev},
+		{"pin_window", &k.PinWindow, "w", actPinWindow},
+		{"swap_background", &k.SwapBackground, "s", actSwapBackground},
+		{"close_window", &k.CloseWindow, "x", actCloseWindow},
+		{"quit", &k.Quit, "q", actQuit},
+		{"move_left", &k.MoveLeft, "h", actMoveLeft},
+		{"move_down", &k.MoveDown, "j", actMoveDown},
+		{"move_up", &k.MoveUp, "k", actMoveUp},
+		{"move_right", &k.MoveRight, "l", actMoveRight},
+		{"resize_left", &k.ResizeLeft, "H", actResizeLeft},
+		{"resize_down", &k.ResizeDown, "J", actResizeDown},
+		{"resize_up", &k.ResizeUp, "K", actResizeUp},
+		{"resize_right", &k.ResizeRight, "L", actResizeRight},
+		{"palette", &k.Palette, "t", actPalette},
+		{"toggle_wrap", &k.ToggleWrap, "z", actToggleWrap},
+		{"scroll_left", &k.ScrollLeft, "<", actScrollLeft},
+		{"scroll_right", &k.ScrollRight, ">", actScrollRight},
+		{"show_events", &k.ShowEvents, "-", actShowEvents},
+		{"settings", &k.Settings, "o", actSettings},
+		{"repaint", &k.Repaint, "r", actRepaint},
+	}
+}
+
+// keySpec is the shortcut for an action (nil if none).
+func (c *Config) keySpec(act action) *keySpec {
+	for _, s := range c.keySpecs() {
+		if s.act == act {
+			return &s
+		}
+	}
+	return nil
+}
+
+// bindKeys builds the table of Alt+key shortcuts from c.Keys. A key that
+// isn't a single non-digit character falls back to the built-in one; a key
+// bound twice keeps its first action.
+func (c *Config) bindKeys() []string {
+	var warns []string
+	c.bindings = map[rune]action{}
+	for _, b := range c.keySpecs() {
+		r, size := utf8.DecodeRuneInString(*b.val)
+		if *b.val == "" || size != len(*b.val) || (r >= '0' && r <= '9') {
+			warns = append(warns, fmt.Sprintf("keys.%s %q: want a single non-digit character (using %q)", b.name, *b.val, b.def))
+			*b.val = b.def
+			r = rune(b.def[0])
+		}
+		if prev, dup := c.bindings[r]; dup && prev != b.act {
+			warns = append(warns, fmt.Sprintf("keys.%s %q is already bound; ignoring", b.name, *b.val))
+			continue
+		}
+		c.bindings[r] = b.act
+	}
+	return warns
 }
