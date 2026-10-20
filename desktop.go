@@ -15,12 +15,13 @@ import (
 // looks the same the next time goat starts:
 //
 //	[background_window]
-//	palette = 29673   # Spring Green on Midnight Navy
+//	palette = "Spring Green on Midnight Navy"   # id 29673
 //	bg = 233
 //	fg = 115
 //
-// palette is the palette's id (as in the palettes file): goat restores the
-// palette by it, with its colors as goat shows them now (24-bit or 256
+// palette is the palette's name (its Pedantic one; ids aren't unique in
+// the palettes file, names are; an id, as earlier versions wrote, is read
+// too): goat restores the palette by it, with its colors as goat shows them now (24-bit or 256
 // colors, which may differ from the last time). bg and fg are its colors as
 // they were, used when there is no palette (or it isn't in the file any
 // more). goat writes this section whenever the background window's colors change
@@ -33,7 +34,7 @@ const desktopSection = "background_window"
 // desktopColors are the background window's colors.
 type desktopColors struct {
 	bg, fg color.Color
-	pal    int // the palette's id (0: none; an id is fg*256+bg, never 0 for a palette)
+	pal    string // the palette: its name ("": none)
 }
 
 func (d desktopColors) same(o desktopColors) bool {
@@ -56,7 +57,7 @@ func readDesktopColors(path string) (d desktopColors, ok bool, warning string) {
 	}
 	var lc struct {
 		Desktop *struct {
-			Palette int   `toml:"palette"`
+			Palette any   `toml:"palette"`
 			Bg      Color `toml:"bg"`
 			Fg      Color `toml:"fg"`
 		} `toml:"background_window"`
@@ -67,7 +68,11 @@ func readDesktopColors(path string) (d desktopColors, ok bool, warning string) {
 	if lc.Desktop == nil {
 		return d, false, ""
 	}
-	return desktopColors{bg: lc.Desktop.Bg.C, fg: lc.Desktop.Fg.C, pal: lc.Desktop.Palette}, true, ""
+	d = desktopColors{bg: lc.Desktop.Bg.C, fg: lc.Desktop.Fg.C}
+	if p := lc.Desktop.Palette; p != nil {
+		d.pal = fmt.Sprint(p) // a name, or an id
+	}
+	return d, true, ""
 }
 
 // writeDesktopColors puts d into local.toml's [background_window] section,
@@ -80,10 +85,10 @@ func writeDesktopColors(path string, d desktopColors, names [2]string) error {
 	}
 	section := []string{"[" + desktopSection + "]",
 		"# The background window's palette and colors, saved by goat when they change."}
-	if d.pal != 0 {
-		line := fmt.Sprintf("palette = %d", d.pal)
+	if d.pal != "" {
+		line := "palette = " + tomlString(d.pal)
 		if names[0] != "" {
-			line = fmt.Sprintf("%-15s # %s", line, names[0])
+			line += "   # " + names[0]
 		}
 		section = append(section, line, colorLine("bg", d.bg, ""), colorLine("fg", d.fg, names[1]))
 	} else {
@@ -159,7 +164,7 @@ func (m *WM) restoreDesktop(w *Window) {
 	if !m.deskKnown {
 		return
 	}
-	if i := m.combos.byID(m.desk.pal); m.desk.pal != 0 && i >= 0 {
+	if i := m.combos.find(m.desk.pal); m.desk.pal != "" && i >= 0 {
 		c := m.combos.get(i)
 		w.pal, w.bgColor, w.fgColor = i+1, m.combos.bg(c), m.combos.fg(c)
 		m.fixText(w)
@@ -180,7 +185,7 @@ func (m *WM) saveDesktop() {
 	d := desktopColors{bg: w.bgColor, fg: w.fgColor}
 	var names [2]string
 	if c := m.combos.get(w.pal - 1); c != nil { // the palette, and its plain name
-		d.pal, names[0] = c.id, c.names[0]
+		d.pal, names[0] = c.names[0], fmt.Sprintf("id %d", c.id)
 	}
 	if (m.deskKnown && d.same(m.desk)) || (!m.deskKnown && d.bg == nil && d.fg == nil) {
 		return

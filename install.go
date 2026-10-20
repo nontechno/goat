@@ -217,6 +217,15 @@ func download(client *http.Client, u string) ([]byte, error) {
 // writeFileAtomic writes data to path through a temporary file and a
 // rename, so the file is never seen half written.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	// A link (dotfiles kept in a repository, linked into ~/.config) is
+	// followed: the file it points to is replaced, and the link stays. An
+	// existing file keeps its permissions.
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	if fi, err := os.Stat(path); err == nil {
+		perm = fi.Mode().Perm()
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)

@@ -98,7 +98,7 @@ func TestHelpKeyCollision(t *testing.T) {
 }
 
 // Keys that can't be shortcuts are refused; a plain key is taken as
-// Alt+key; a key that shows a goat window (system.toml) is warned about.
+// Alt+key.
 func TestHelpKeyRefusedAndWarned(t *testing.T) {
 	m, _ := helpWM(t)
 	m.help.sel = actRepaint
@@ -110,16 +110,6 @@ func TestHelpKeyRefusedAndWarned(t *testing.T) {
 	key(m, uv.Key{Code: 'u', Text: "u"}) // the key alone
 	if m.cfg.Keys.Repaint != "u" {
 		t.Fatalf("plain key: %q", m.cfg.Keys.Repaint)
-	}
-	m.sys.conf = map[string]panelConf{"status": {key: &panelKeySpec{code: 'g', alt: true}}}
-	key(m, uv.Key{Code: uv.KeyEnter})
-	key(m, uv.Key{Code: 'g', Mod: uv.ModAlt})
-	if m.help.pending == nil || !strings.Contains(helpText(m), "also shows the status window") {
-		t.Fatalf("panel key not warned:\n%s", helpText(m))
-	}
-	key(m, uv.Key{Code: uv.KeyEnter})
-	if m.cfg.Keys.Repaint != "g" {
-		t.Errorf("not taken after the warning: %q", m.cfg.Keys.Repaint)
 	}
 }
 

@@ -59,6 +59,15 @@ func (w *Window) installReplies(cell func() (width, height int)) {
 		}
 		return true
 	})
+	// DSR 5, "status?": "OK" is CSI 0 n. (The emulator answers CSI ? 0 n,
+	// which programs using DSR 5 to wait for the terminal don't expect.)
+	w.emu.RegisterCsiHandler('n', func(params ansi.Params) bool {
+		if n, _, _ := params.Param(0, 0); n != 5 {
+			return false // the emulator's own (cursor position)
+		}
+		reply("\x1b[0n")
+		return true
+	})
 	w.emu.RegisterCsiHandler(ansi.Command('?', 0, 'n'), func(params ansi.Params) bool {
 		if n, _, _ := params.Param(0, 0); n != 996 {
 			return false // the emulator's own (cursor position, …)

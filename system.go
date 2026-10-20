@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -19,17 +18,16 @@ import (
 //
 //	[help]
 //	title = "❓Help"       # the title in its frame and status bar tab
-//	activate = "alt+f1"   # the key that shows / hides it
 //	theme = 32342         # its palette: the "id" from the palettes file
 //	size = [40, 100%]     # width, height: columns / rows, or % of the screen
 //	position = [-40, 0]   # left, top; negative: from the right / bottom edge
 //
 // Every key is optional; a window without a section opens as it always
-// did. activate takes "f1" … "f12", "alt+f1" … "alt+f12", or Alt and a
-// character: "alt+h", "alt-" (Alt+-). The defaults are Alt+F1 (help),
-// Alt+F2 (status) and Alt+F3 (inventory): programs rarely use Alt with a
-// function key, while F1 … F10 alone are theirs (mc, htop, …). A position
-// has no effect in a direction the window fills (100%). One number is the
+// did. The keys that show the windows are fixed: Alt+F1 (help), Alt+F2
+// (status), Alt+F3 (inventory), Alt+- (events, keys.show_events): programs
+// rarely use Alt with a function key, while F1 … F10 alone are theirs (mc,
+// htop, …). An "activate" key, which earlier versions read, is ignored.
+// A position has no effect in a direction the window fills (100%). One number is the
 // left edge alone. "possition" is read as position too, and a percentage
 // may be written without quotes.
 //
@@ -38,7 +36,7 @@ import (
 // (a couple of seconds after the last change, or when it is hidden). Only
 // the keys concerned are rewritten, in place; everything else in the file
 // (comments, other keys and sections) stays as it is. goat checks the file
-// every few seconds and picks up changes made by hand: titles, keys and
+// every few seconds and picks up changes made by hand: titles and
 // palettes at once, size and position the next time the window is shown.
 
 // systemFile is the file's name, in the config folder.
@@ -61,53 +59,29 @@ type dimension struct {
 
 // panelConf is one window's section.
 type panelConf struct {
-	title    string
-	activate string // as written
-	key      *panelKeySpec
-	theme    int // a palette id (0: none)
-	size     [2]dimension
-	pos      [2]dimension
-	posKey   string // "position", or "possition" as the file has it
+	title  string
+	theme  int // a palette id (0: none)
+	size   [2]dimension
+	pos    [2]dimension
+	posKey string // "position", or "possition" as the file has it
 }
 
-// panelKeySpec is a key that shows / hides a panel.
+// panelKeySpec is a key that shows / hides a panel: Alt and a function key.
 type panelKeySpec struct {
-	code rune // uv.KeyF1 … uv.KeyF12, or a character (always with alt)
-	alt  bool
-}
-
-// mod is the modifier the key is pressed with.
-func (k panelKeySpec) mod() uv.KeyMod {
-	if k.alt {
-		return uv.ModAlt
-	}
-	return 0
+	code rune // uv.KeyF1 … uv.KeyF12
 }
 
 // lockMods are the lock keys' states a terminal may report with a key
 // (kitty protocol); they don't make it another key.
 const lockMods = uv.ModCapsLock | uv.ModNumLock | uv.ModScrollLock
 
-// isFKey reports whether code is one of F1 … F12.
-func isFKey(code rune) bool { return code >= uv.KeyF1 && code <= uv.KeyF12 }
+func (k panelKeySpec) String() string { return fmt.Sprintf("Alt+F%d", k.code-uv.KeyF1+1) }
 
-func (k panelKeySpec) String() string {
-	name := string(k.code)
-	if isFKey(k.code) {
-		name = fmt.Sprintf("F%d", k.code-uv.KeyF1+1)
-	}
-	if k.alt {
-		return "Alt+" + name
-	}
-	return name
-}
-
-// defaultPanelKeys are the keys that show / hide goat's windows when
-// system.toml doesn't say: Alt with F1, F2, F3.
-var defaultPanelKeys = map[string]panelKeySpec{
-	"help":      {code: uv.KeyF1, alt: true},
-	"status":    {code: uv.KeyF2, alt: true},
-	"inventory": {code: uv.KeyF3, alt: true},
+// panelKeys are the keys that show / hide goat's windows.
+var panelKeys = map[string]panelKeySpec{
+	"help":      {uv.KeyF1},
+	"status":    {uv.KeyF2},
+	"inventory": {uv.KeyF3},
 }
 
 // panelGeom is a panel's place on the screen.
@@ -129,34 +103,6 @@ type systemState struct {
 
 // systemRecheckEvery is how often the file is looked at for changes.
 const systemRecheckEvery = 3 * time.Second
-
-// parsePanelKey reads an activate value: "f1" … "f12", "alt+f1" …
-// "alt+f12", "alt+x", "alt-".
-func parsePanelKey(s string) (panelKeySpec, error) {
-	low := strings.ToLower(strings.TrimSpace(s))
-	alt := false
-	if rest, ok := strings.CutPrefix(low, "alt"); ok && len(rest) > 2 && (rest[0] == '+' || rest[0] == '-') {
-		if _, err := strconv.Atoi(rest[2:]); err == nil && rest[1] == 'f' { // alt+f1
-			low, alt = rest[1:], true
-		}
-	}
-	if n, err := strconv.Atoi(strings.TrimPrefix(low, "f")); err == nil && strings.HasPrefix(low, "f") {
-		if n < 1 || n > 12 {
-			return panelKeySpec{}, fmt.Errorf("%q: F1 to F12", s)
-		}
-		return panelKeySpec{code: uv.KeyF1 + rune(n-1), alt: alt}, nil
-	}
-	if strings.HasPrefix(low, "alt") {
-		rest := strings.TrimSpace(s)[3:]
-		if utf8.RuneCountInString(rest) == 2 && (rest[0] == '+' || rest[0] == '-') {
-			rest = rest[1:]
-		}
-		if r, size := utf8.DecodeRuneInString(rest); rest != "" && size == len(rest) && r > ' ' && !(r >= '0' && r <= '9') {
-			return panelKeySpec{code: r, alt: true}, nil
-		}
-	}
-	return panelKeySpec{}, fmt.Errorf("%q: want f1 … f12, alt+f1 … alt+f12, or alt and a character (alt+h, alt-)", s)
-}
 
 // quotePercents puts quotes around bare percentages (size = [40, 100%]),
 // so the file reads as TOML. Text in quotes and comments is left alone.
@@ -236,13 +182,7 @@ func parseSystem(text string) (map[string]panelConf, []string, error) {
 					warn("[%s] title: want text", name)
 				}
 			case "activate":
-				s, _ := v.(string)
-				spec, err := parsePanelKey(s)
-				if err != nil {
-					warn("[%s] activate %v", name, err)
-					continue
-				}
-				pc.activate, pc.key = s, &spec
+				// No longer read: the keys are fixed (Alt+F1 … Alt+F3, Alt+-).
 			case "theme", "palette":
 				switch t := v.(type) {
 				case int64:
@@ -271,7 +211,7 @@ func parseSystem(text string) (map[string]panelConf, []string, error) {
 				}
 				pc.pos, pc.posKey = d, key
 			default:
-				warn("[%s] %s: unknown (title, activate, theme, size, position)", name, key)
+				warn("[%s] %s: unknown (title, theme, size, position)", name, key)
 			}
 		}
 		conf[name] = pc
@@ -294,8 +234,8 @@ func parseDimensions(v any) ([2]dimension, error) {
 		switch t := x.(type) {
 		case int64:
 			out[i] = dimension{v: float64(t), set: true}
-		case float64:
-			out[i] = dimension{v: t, set: true}
+		case float64: // columns / rows are whole: [-100.0] is likely [-100, 0]
+			return out, fmt.Errorf("%v: want whole columns / rows (two numbers are separated by a comma: [-100, 0])", t)
 		case string:
 			n, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(t), "%"), 64)
 			if err != nil || !strings.HasSuffix(strings.TrimSpace(t), "%") {
@@ -356,7 +296,6 @@ func (m *WM) loadSystem(now time.Time) bool {
 		return false
 	}
 	st.err = ""
-	warns = append(warns, m.panelKeyCollisions(conf)...)
 	for _, w := range warns {
 		m.logEvent(nil, evConfig, homeShort(st.path, m.home)+": "+w)
 		logger.Warn("system.toml", "problem", w)
@@ -364,36 +303,6 @@ func (m *WM) loadSystem(now time.Time) bool {
 	st.conf = conf
 	m.applySystem()
 	return true
-}
-
-// panelKeyCollisions are warnings about activate keys that are also one
-// of goat's shortcuts (the window wins: the shortcut is gone) or another
-// window's key (the first in help, status, inventory, events wins).
-func (m *WM) panelKeyCollisions(conf map[string]panelConf) []string {
-	var warns []string
-	seen := map[panelKeySpec]string{}
-	for _, name := range panelNames {
-		k := conf[name].key
-		if k == nil {
-			if d, ok := defaultPanelKeys[name]; ok {
-				k = &d
-			} else {
-				continue
-			}
-		}
-		if other, dup := seen[*k]; dup {
-			warns = append(warns, fmt.Sprintf("[%s] activate: %s is the %s window's already (that one wins)", name, k, other))
-			continue
-		}
-		seen[*k] = name
-		if !k.alt || isFKey(k.code) || m.cfg == nil {
-			continue
-		}
-		if act, ok := m.cfg.bindings[k.code]; ok && (act != actShowEvents || name != "events") {
-			warns = append(warns, fmt.Sprintf("[%s] activate: %s is also %s, which it replaces", name, k, actionNames[act]))
-		}
-	}
-	return warns
 }
 
 // refreshSystem re-reads system.toml every few seconds, and writes panel
@@ -515,22 +424,13 @@ func (m *WM) placePanel(w *Window, name string) {
 	}
 }
 
-// panelForKey is the panel a key shows / hides ("" for none): system.toml's
-// activate keys, else Alt+F1 help, Alt+F2 status, Alt+F3 inventory. (The events window
-// also has Alt+- , keys.show_events.)
+// panelForKey is the panel a key shows / hides ("" for none): Alt+F1 help,
+// Alt+F2 status, Alt+F3 inventory. (The events window is Alt+-, the
+// show_events shortcut.)
 func (m *WM) panelForKey(k uv.Key) string {
-	r, isChar := bindingRune(k)
 	for _, name := range panelNames {
-		spec := m.panelActivateKey(name)
-		if spec == nil {
-			continue
-		}
-		switch {
-		case spec.alt && isChar && k.Mod == uv.ModAlt && r == spec.code:
-			return name
-		case spec.alt && isChar && k.Mod == uv.ModAlt|uv.ModShift && r == spec.code:
-			return name
-		case isFKey(spec.code) && k.Code == spec.code && k.Mod&^lockMods == spec.mod():
+		spec, ok := panelKeys[name]
+		if ok && k.Code == spec.code && k.Mod&^lockMods == uv.ModAlt {
 			return name
 		}
 	}
@@ -539,11 +439,8 @@ func (m *WM) panelForKey(k uv.Key) string {
 
 // panelActivateKey is the key that shows / hides a panel (nil: none of
 // its own).
-func (m *WM) panelActivateKey(name string) *panelKeySpec {
-	if k := m.sys.conf[name].key; k != nil {
-		return k
-	}
-	if k, ok := defaultPanelKeys[name]; ok {
+func panelActivateKey(name string) *panelKeySpec {
+	if k, ok := panelKeys[name]; ok {
 		return &k
 	}
 	return nil
@@ -552,7 +449,7 @@ func (m *WM) panelActivateKey(name string) *panelKeySpec {
 // panelKeyName is the key that shows / hides a panel, for the help.
 func (m *WM) panelKeyName(name string) string {
 	var keys []string
-	if k := m.panelActivateKey(name); k != nil {
+	if k := panelActivateKey(name); k != nil {
 		keys = append(keys, k.String())
 	}
 	if name == "events" {
@@ -730,7 +627,7 @@ func writeSectionKeys(path, section string, keys map[string]*string) error {
 		last--
 	}
 	var add []string
-	for _, k := range []string{"title", "activate", "theme", "size", "position", "possition"} {
+	for _, k := range []string{"title", "theme", "size", "position", "possition"} {
 		if v, ok := keys[k]; ok && v != nil && !done[k] {
 			add = append(add, k+" = "+*v)
 		}

@@ -51,6 +51,7 @@ type Window struct {
 	followCursor bool        // the view follows the cursor sideways (after typing)
 	oscTitle     string      // set by the program (OSC 0/2)
 	titles       titleFilter // which title changes the events window lists
+	gitBusy      bool        // a git lookup for it is running (git.go refreshPlace)
 	oscDir       string      // working directory the shell reported (OSC 7)
 	dir          string      // last known working directory (for the status bar)
 
@@ -521,7 +522,8 @@ func (w *Window) refreshProcName() bool {
 }
 
 // currentDir is the working directory of the program in the window: the
-// foreground process's (Linux), else what the shell last reported (OSC 7).
+// foreground process's (Linux, macOS), else what the shell last reported
+// (OSC 7).
 func (w *Window) currentDir() string {
 	if w.closed || w.ptmx == nil || w.cmd == nil {
 		return w.oscDir

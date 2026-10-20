@@ -261,4 +261,7 @@ func TestPanelTextFromPrograms(t *testing.T) {
 	if got := a.displayTitle("process"); got != "evil]0;x2J title tab" {
 		t.Errorf("title bar: %q", got)
 	}
+	if got := printable("🧑\u200d💻 dev"); got != "🧑\u200d💻 dev" {
+		t.Errorf("emoji split: %q", got)
+	}
 }

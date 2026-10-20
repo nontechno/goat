@@ -196,6 +196,10 @@ type Config struct {
 	// "off" (truecolor.go).
 	TrueColor string `toml:"true_color"`
 
+	// Palette colors (combos.go): "rgb" (their #RRGGBB colors), "ansi"
+	// (their xterm-256 indexes) or "auto" (rgb when 24-bit color is on).
+	PaletteColors string `toml:"palette_colors"`
+
 	// Ask the terminal goat runs in to report keys the classic encoding
 	// can't tell apart (Shift+Enter, Ctrl+i / Tab, Esc / Alt): kitty's
 	// keyboard protocol, else xterm's modifyOtherKeys (keyboard.go).
@@ -234,6 +238,7 @@ func DefaultConfig() *Config {
 		NowrapWidth:          512,
 		TitleSource:          "process",
 		TrueColor:            "auto",
+		PaletteColors:        "rgb",
 		KeyboardEnhancements: true,
 		Frame:                "full",
 		ClipboardOSC52:       true,
@@ -356,6 +361,12 @@ func (c *Config) finish(md *toml.MetaData) []string {
 	default:
 		warn("true_color = %q: use \"auto\", \"on\" or \"off\" (using \"auto\")", c.TrueColor)
 		c.TrueColor = "auto"
+	}
+	switch c.PaletteColors {
+	case "rgb", "ansi", "auto":
+	default:
+		warn("palette_colors = %q: use \"rgb\", \"ansi\" or \"auto\" (using \"rgb\")", c.PaletteColors)
+		c.PaletteColors = "rgb"
 	}
 	switch c.TitleSource {
 	case "process", "terminal":

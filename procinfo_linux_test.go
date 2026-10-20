@@ -31,3 +31,16 @@ func TestSampleProcsLinux(t *testing.T) {
 		t.Fatalf("own process: %+v (%d processes, err %q)", p, len(tb.procs), tb.err)
 	}
 }
+
+// macOS's kern.procargs2 (procname_darwin.go processArgs).
+func TestParseProcArgs2(t *testing.T) {
+	b := []byte{3, 0, 0, 0}
+	b = append(b, "/usr/bin/ssh\x00\x00\x00\x00ssh\x00-p\x002222\x00HOME=/x\x00"...)
+	got := parseProcArgs2(b)
+	if len(got) != 3 || got[0] != "ssh" || got[1] != "-p" || got[2] != "2222" {
+		t.Errorf("%q", got)
+	}
+	if parseProcArgs2([]byte{1, 0}) != nil {
+		t.Error("short")
+	}
+}

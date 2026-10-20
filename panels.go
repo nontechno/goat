@@ -80,6 +80,7 @@ func (m *WM) newPanelWindow(name string, history int, at panelPlace) *Window {
 // showPanel puts a panel on screen: on top, focused, where it was last
 // time (kept on the screen if that has shrunk).
 func (m *WM) showPanel(w *Window) {
+	m.applyHostColors(w) // the terminal's colors may have changed while it was hidden
 	m.place(w, w.x, w.y, w.w, w.h)
 	m.windows = append(m.windows, w)
 	m.focus(w)
@@ -188,7 +189,11 @@ func showPanelLines(w *Window, from, to int) {
 // elsewhere ends it). A new width is laid out all the same.
 func (m *WM) panelSelectionBusy(w *Window, shownW int) bool {
 	s := m.sel
-	return s != nil && s.win == w && (s.dragging || s.visible()) && w.contentW() == shownW
+	busy := s != nil && s.win == w && (s.dragging || s.visible()) && w.contentW() == shownW
+	if busy && !s.dragging { // say so, while it lasts (refreshed every tick)
+		m.setBarMessage(m.tabName(w)+": not refreshed while text is selected (click elsewhere to go on)", time.Second)
+	}
+	return busy
 }
 
 // printable drops control and other invisible characters from text a
@@ -197,14 +202,17 @@ func (m *WM) panelSelectionBusy(w *Window, shownW int) bool {
 // spaces, the rest is dropped, so no program can put escape sequences or
 // cursor moves into goat's own text.
 func printable(s string) string {
-	if !strings.ContainsFunc(s, func(r rune) bool { return !unicode.IsPrint(r) }) {
+	keep := func(r rune) bool { // (the joiners hold emoji like 🧑‍💻 together)
+		return unicode.IsPrint(r) || r == '\u200d' || r == '\u200c'
+	}
+	if !strings.ContainsFunc(s, func(r rune) bool { return !keep(r) }) {
 		return s
 	}
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\t' || r == '\n' || r == '\r':
 			return ' '
-		case !unicode.IsPrint(r):
+		case !keep(r):
 			return -1
 		}
 		return r

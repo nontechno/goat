@@ -72,33 +72,52 @@ func (g gitInfo) frameText(plain bool) string {
 	return repoSymbol + g.repo + " " + branchSymbol + g.branch
 }
 
-// refreshGit brings w.git up to date with w.dir. changed reports whether the
-// label changed; switched is set (old, new branch) when the branch changed
-// within the same repository.
-func (w *Window) refreshGit(now time.Time) (changed bool, switched [2]string) {
-	old := w.git
+// nextGit is old brought up to date for dir. It reads the file system
+// (which may hang, on a network folder), so it runs in the background
+// (refreshPlace).
+func nextGit(old gitInfo, dir string, now time.Time) gitInfo {
+	g := old
 	switch {
-	case w.dir == "":
-		w.git = gitInfo{}
-	case w.dir != old.dir || now.Sub(old.found) >= gitRecheckEvery:
-		w.git = findGit(w.dir, now)
+	case dir == "":
+		g = gitInfo{}
+	case dir != old.dir || now.Sub(old.found) >= gitRecheckEvery:
+		g = findGit(dir, now)
 	case old.headPath != "":
 		// Same directory: has HEAD changed (a checkout)?
 		fi, err := os.Stat(old.headPath)
 		if err != nil {
-			w.git = findGit(w.dir, now) // the repository went away?
+			g = findGit(dir, now) // the repository went away?
 		} else if !fi.ModTime().Equal(old.headMod) || fi.Size() != old.headSize {
-			w.git.branch, w.git.headMod, w.git.headSize = readGitHead(old.headPath)
+			g.branch, g.headMod, g.headSize = readGitHead(old.headPath)
 		}
 	}
-	if w.git.label() == old.label() {
-		// (frameText changes only with the label)
-		return false, switched
+	return g
+}
+
+// gitMsg is a background git lookup's result for a window.
+type gitMsg struct {
+	w   *Window
+	git gitInfo
+}
+
+// applyGit takes a git lookup's result: reports whether w's label changed,
+// and lists a branch switch within the same repository.
+func (m *WM) applyGit(msg gitMsg) bool {
+	w, old := msg.w, msg.w.git
+	w.gitBusy = false
+	if w.closed {
+		return false
+	}
+	w.git = msg.git
+	if w.git.label() == old.label() { // (frameText changes only with the label)
+		return false
 	}
 	if old.repo != "" && w.git.top == old.top && w.git.branch != old.branch {
-		switched = [2]string{old.branch, w.git.branch}
+		a := m.alias.a
+		m.logEvent(w, evGit, a.repo(w.git.repo)+": "+a.branch(w.git.repo, old.branch)+" "+changeSymbol+" "+a.branch(w.git.repo, w.git.branch))
 	}
-	return true, switched
+	m.dirty = true
+	return true
 }
 
 // findGit looks for the repository dir is in.
@@ -315,21 +334,22 @@ func (m *WM) aliasGit(g gitInfo) gitInfo {
 const evGit eventKind = "git"
 
 // refreshPlace updates w's directory (for status_show_dir, the active
-// window's; for show_git, every window's) and, with show_git, its git
-// repository and branch; a branch switch is listed in the events window.
-// Reports whether anything shown changed.
+// window's; for show_git, every window's) and, with show_git, starts a
+// look at its git repository and branch in the background (applyGit takes
+// the result). The directory comes from the process (no file system
+// access); git's files are read off the event loop, so a folder on a
+// network share that stops answering can't freeze goat (only that
+// window's git label stays as it was). Reports whether the directory
+// changed.
 func (m *WM) refreshPlace(w *Window, now time.Time) bool {
 	if !m.cfg.ShowGit && !(m.cfg.StatusShowDir && w == m.focused) {
 		return false
 	}
 	changed := w.refreshDir()
-	if m.cfg.ShowGit {
-		gitChanged, sw := w.refreshGit(now)
-		if sw != [2]string{} {
-			a := m.alias.a
-			m.logEvent(w, evGit, a.repo(w.git.repo)+": "+a.branch(w.git.repo, sw[0])+" "+changeSymbol+" "+a.branch(w.git.repo, sw[1]))
-		}
-		changed = changed || gitChanged
+	if m.cfg.ShowGit && !w.gitBusy && !w.closed {
+		w.gitBusy = true
+		old, dir, out := w.git, w.dir, m.gitOut
+		go func() { out <- gitMsg{w: w, git: nextGit(old, dir, now)} }()
 	}
 	return changed
 }

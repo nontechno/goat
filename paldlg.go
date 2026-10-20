@@ -10,30 +10,26 @@ import (
 
 // The palette dialog (Alt+t, keys.palette): choose the active window's
 // colors, a background + text pair from terminal-color-combinations.json
-// (combos.go). Three lists, one item chosen in each:
+// (combos.go):
 //
-//	╭─────────theme─┬───────────────────────────────────────palette─╮
-//	│ dark          │ Minty Fresh … │ Pea Soup …    │ Spice Rack …  │
-//	│ in-between    │ …             │ …             │ …             │
-//	│ light         │ …             │ …             │ …             │
-//	├─────────lingo─┤ …             │ …             │ …             │
-//	│ Pedantic      │ …             │ …             │ …             │
-//	│ Funny         │ …             ╔═══════════════╗ …             │
-//	│ Outrageous    │ …             ║ Blue on Blue  ║ …             │
-//	│ …             │ …             ╚═══════════════╝ …             │
-//	╰───────────────┴─ Tab list · arrows choose · Enter keep · Esc ─╯
+//	╭───────────────┬───────────────┬────────palette─╮
+//	│ Minty Fresh … │ Pea Soup …    │ Spice Rack …   │
+//	│ …             ╔═══════════════╗ …              │
+//	│ …             ║ Blue on Blue  ║ …              │
+//	│ …             ╚═══════════════╝ …              │
+//	╰ theme: dark · lingo: Pedantic ─ … Enter keep ─╯
 //
-// theme: dark, in-between or light backgrounds; lingo: the style of the
-// names (Pedantic, Funny, …); palette: the theme's 36 pairs, each named in
-// the lingo and drawn in its own colors, the chosen one in a double box
-// (which covers the items above and below it in its column).
+// The palettes are the theme's 36 pairs (dark, in-between or light
+// backgrounds), each named in the lingo (Pedantic, Funny, …) and drawn in
+// its own colors; the chosen one has a double box in its colors (over the
+// items above and below it). The theme and the lingo are in the bottom
+// line: t / l (or a click on them) go to the next one, Shift+t / Shift+l
+// back.
 //
-// The window shows each pair as it is chosen. Enter keeps it, Esc (or
-// Alt+t again) puts the window's colors back. Delete chooses no palette:
-// the terminal's own colors. Tab / Shift+Tab move between the lists; in a
-// list ↑ ↓ choose, in the palette ← → too (← from the first column goes
-// to the lingo list). A click chooses; a double click on a palette keeps
-// it.
+// The window shows each pair as it is chosen (arrows, Home, End, a click).
+// Enter (or a double click) keeps it, Esc (or Alt+t again) puts the
+// window's colors back. Delete chooses no palette: the terminal's own
+// colors. The quit shortcut (Alt+q) closes the dialog, as Esc, and quits.
 //
 // Kept for the background window, it is saved in local.toml (like its
 // colors always were); for goat's own windows (help, status, inventory,
@@ -49,23 +45,21 @@ type paletteDialog struct {
 	theme  int // index into comboThemes
 	lingo  int // index into comboLingos
 	pos    int // position in the theme's list (0-35); -1: no palette
-	list   int // the list with the keys: 0 theme, 1 lingo, 2 palette
 	// The window's colors when the dialog opened (Esc puts them back).
 	bg, fg color.Color
 	pal    int
 	// Where things were drawn, for clicks.
-	themeRows, lingoRows []uv.Rectangle
-	cells                []uv.Rectangle // the palette items, by position
-	box                  uv.Rectangle
+	themeAt, lingoAt uv.Rectangle   // the theme and lingo in the bottom line
+	cells            []uv.Rectangle // the palette items, by position
+	box              uv.Rectangle
 	// The last click on a palette item, for double clicks.
 	clickAt  time.Time
 	clickPos int
 }
 
-// Dialog geometry: the left column's inside width, the palette's rows and
-// columns, and how wide a palette item may get.
+// Dialog geometry: the palette's rows and columns, and how wide a palette
+// item may get.
 const (
-	palLeftW   = 15
 	palRows    = 12
 	palCols    = 3
 	palItemMax = 34 // names are at most 32 characters, plus a space each side
@@ -86,7 +80,7 @@ func (m *WM) openPalette() {
 		return
 	}
 	m.cancelEsc()
-	d := &paletteDialog{target: w, lingo: m.lingo, list: 2, bg: w.bgColor, fg: w.fgColor, pal: w.pal, pos: -1, clickPos: -1}
+	d := &paletteDialog{target: w, lingo: m.lingo, bg: w.bgColor, fg: w.fgColor, pal: w.pal, pos: -1, clickPos: -1}
 	if i := w.pal - 1; m.combos.get(i) != nil {
 		d.theme, d.pos = m.combos.all[i].theme, m.combos.position(i)
 	} else if m.backgroundTone(w) == toneLight {
@@ -171,6 +165,7 @@ func (m *WM) paletteKey(k uv.Key) {
 		}
 	}
 	n := m.palCount()
+	plain := isChar && !k.Mod.Contains(uv.ModAlt) && !k.Mod.Contains(uv.ModCtrl)
 	switch {
 	case k.Code == uv.KeyEscape:
 		m.closePalette(false)
@@ -181,32 +176,14 @@ func (m *WM) paletteKey(k uv.Key) {
 	case k.Code == uv.KeyEnter:
 		m.closePalette(true)
 		return
-	case k.Code == uv.KeyTab && k.Mod.Contains(uv.ModShift):
-		d.list = (d.list + 2) % 3
-	case k.Code == uv.KeyTab:
-		d.list = (d.list + 1) % 3
 	case k.Code == uv.KeyDelete || k.Code == uv.KeyBackspace:
 		d.pos = -1
 		m.palPreview()
-	case d.list == 0: // theme
-		switch k.Code {
-		case uv.KeyUp:
-			m.palTheme(d.theme - 1)
-		case uv.KeyDown:
-			m.palTheme(d.theme + 1)
-		case uv.KeyRight:
-			d.list = 2
-		}
-	case d.list == 1: // lingo
-		switch k.Code {
-		case uv.KeyUp:
-			d.lingo = max(d.lingo-1, 0)
-		case uv.KeyDown:
-			d.lingo = min(d.lingo+1, len(comboLingos)-1)
-		case uv.KeyRight:
-			d.list = 2
-		}
-	default: // palette: down the columns, one column after another
+	case plain && (r == 't' || r == 'T'): // the next theme (Shift: the one before)
+		m.palTheme(cycle(d.theme, len(comboThemes), r == 'T'))
+	case plain && (r == 'l' || r == 'L'): // the next lingo
+		d.lingo = cycle(d.lingo, len(comboLingos), r == 'L')
+	default: // the palette: down the columns, one column after another
 		p := d.pos
 		switch k.Code {
 		case uv.KeyUp:
@@ -214,12 +191,9 @@ func (m *WM) paletteKey(k uv.Key) {
 		case uv.KeyDown:
 			p++
 		case uv.KeyLeft:
-			if p < palRows { // the first column: on to the lingo list
-				d.list = 1
-				m.dirty = true
-				return
+			if p >= palRows {
+				p -= palRows
 			}
-			p -= palRows
 		case uv.KeyRight:
 			if p < 0 {
 				p = 0
@@ -239,6 +213,14 @@ func (m *WM) paletteKey(k uv.Key) {
 		}
 	}
 	m.dirty = true
+}
+
+// cycle is the next of n choices after i (back: the one before), round.
+func cycle(i, n int, back bool) int {
+	if back {
+		return (i + n - 1) % n
+	}
+	return (i + 1) % n
 }
 
 // palTheme switches the dialog to theme t, keeping the palette's place.
@@ -263,16 +245,11 @@ func (m *WM) paletteMouse(ev uv.MouseEvent) {
 	}
 	d := m.palDlg
 	p := uv.Pos(click.X, click.Y)
-	for i, r := range d.themeRows {
-		if p.In(r) {
-			d.list = 0
-			m.palTheme(i)
-		}
-	}
-	for i, r := range d.lingoRows {
-		if p.In(r) {
-			d.list, d.lingo = 1, i
-		}
+	switch {
+	case p.In(d.themeAt):
+		m.palTheme(cycle(d.theme, len(comboThemes), false))
+	case p.In(d.lingoAt):
+		d.lingo = cycle(d.lingo, len(comboLingos), false)
 	}
 	for i, r := range d.cells {
 		if !p.In(r) {
@@ -281,7 +258,6 @@ func (m *WM) paletteMouse(ev uv.MouseEvent) {
 		now := time.Now()
 		double := d.clickPos == i && now.Sub(d.clickAt) < multiClickTime
 		d.clickAt, d.clickPos = now, i
-		d.list = 2
 		if d.pos != i {
 			d.pos = i
 			m.palPreview()
@@ -299,89 +275,39 @@ func (m *WM) paletteMouse(ev uv.MouseEvent) {
 func (m *WM) drawPalette(scr uv.Screen) {
 	d := m.palDlg
 	base, border, hint := m.dialogStyles()
-	dim := border
-	dim.Attrs &^= uv.AttrBold
-	dim.Fg = hint.Fg
-	itemW := clamp((m.cols-palLeftW-3-palCols)/palCols, palItemMin, palItemMax)
-	width := 1 + palLeftW + 1 + palCols*itemW + (palCols - 1) + 1
+	itemW := clamp((m.cols-2-(palCols-1))/palCols, palItemMin, palItemMax)
+	width := 1 + palCols*itemW + (palCols - 1) + 1
 	height := palRows + 2
 	x0, y0 := max((m.cols-width)/2, 0), max((m.areaH()-height)/2, 0)
-	xL := x0 + 1 + palLeftW // the line between the lists and the palette
 	x1, y1 := x0+width-1, y0+height-1
 	d.box = uv.Rect(x0, y0, width, height)
+	colX := func(c int) int { return x0 + c*(itemW+1) } // the line left of column c
 
-	// The box, its column lines, the lingo separator.
+	// The box and its column lines, all in the frame's color.
 	for y := y0; y <= y1; y++ {
 		for x := x0; x <= x1; x++ {
 			put(scr, x, y, runeCell(' ', base))
 		}
 	}
-	colX := func(c int) int { return xL + c*(itemW+1) } // the line left of palette column c
 	for x := x0; x <= x1; x++ {
 		put(scr, x, y0, runeCell(frameH, border))
 		put(scr, x, y1, runeCell(frameH, border))
 	}
 	for y := y0; y <= y1; y++ {
-		put(scr, x0, y, runeCell(frameV, border))
-		put(scr, x1, y, runeCell(frameV, border))
-		put(scr, xL, y, runeCell(frameV, border))
-		for c := 1; c < palCols; c++ {
-			put(scr, colX(c), y, runeCell(frameV, dim))
+		for c := 0; c <= palCols; c++ {
+			put(scr, colX(c), y, runeCell(frameV, border))
 		}
 	}
 	put(scr, x0, y0, runeCell(frameTopLeft, border))
 	put(scr, x1, y0, runeCell(frameTopRight, border))
 	put(scr, x0, y1, runeCell(dialogBottomLeft, border))
 	put(scr, x1, y1, runeCell(dialogBottomRight, border))
-	put(scr, xL, y0, runeCell(dialogTeeDown, border))
-	put(scr, xL, y1, runeCell(dialogTeeUp, border))
 	for c := 1; c < palCols; c++ {
-		put(scr, colX(c), y0, runeCell(dialogTeeDown, dim))
-		put(scr, colX(c), y1, runeCell(dialogTeeUp, dim))
+		put(scr, colX(c), y0, runeCell(dialogTeeDown, border))
+		put(scr, colX(c), y1, runeCell(dialogTeeUp, border))
 	}
-	ySep := y0 + 1 + len(comboThemes) // "├───lingo─┤"
-	put(scr, x0, ySep, runeCell(frameTeeLeft, border))
-	for x := x0 + 1; x < xL; x++ {
-		put(scr, x, ySep, runeCell(frameH, border))
-	}
-	put(scr, xL, ySep, runeCell(frameTeeRight, border))
-
-	// List titles, right-aligned in their lines; the list with the keys
-	// in the border's color, the others dimmer.
-	title := func(text string, right, y int, active bool) {
-		st := dim
-		if active {
-			st = border
-		}
-		cs := textCells(text, st, right-x0-2)
-		putCells(scr, right-cellsWidth(cs)-1, y, cs)
-	}
-	title("theme", xL, y0, d.list == 0)
-	title("lingo", xL, ySep, d.list == 1)
-	title("palette", x1, y0, d.list == 2)
-
-	// The theme and lingo lists: the chosen item reversed.
-	item := func(text string, y int, chosen, active bool) uv.Rectangle {
-		st := base
-		if chosen {
-			st.Attrs |= uv.AttrReverse
-			if !active {
-				st.Attrs |= uv.AttrFaint
-			}
-		}
-		for x := x0 + 1; x < xL; x++ {
-			put(scr, x, y, runeCell(' ', st))
-		}
-		putCells(scr, x0+2, y, textCells(text, st, palLeftW-2))
-		return uv.Rect(x0+1, y, palLeftW, 1)
-	}
-	d.themeRows = d.themeRows[:0]
-	for i, t := range comboThemeShown {
-		d.themeRows = append(d.themeRows, item(t, y0+1+i, i == d.theme, d.list == 0))
-	}
-	d.lingoRows = d.lingoRows[:0]
-	for i, l := range comboLingos {
-		d.lingoRows = append(d.lingoRows, item(l, ySep+1+i, i == d.lingo, d.list == 1))
+	if cs := textCells("palette", border, width-4); len(cs) > 0 {
+		putCells(scr, x1-cellsWidth(cs)-1, y0, cs)
 	}
 
 	// The palette: column by column, each item in its own colors.
@@ -401,16 +327,37 @@ func (m *WM) drawPalette(scr uv.Screen) {
 		putCells(scr, x+1, y, textCells(fitStart(c.names[d.lingo], itemW-2), st, itemW-2))
 		d.cells = append(d.cells, uv.Rect(x, y, itemW, 1))
 	}
-	// The chosen one's double box, over the items above and below it.
+	// The bottom line: the theme and the lingo on the left (click them, or
+	// t / l), what to press on the right.
+	x := x0 + 1
+	field := func(label, value string) uv.Rectangle {
+		cs := textCells(" "+label+": ", hint, x1-x)
+		start := x
+		x = putCells(scr, x, y1, cs)
+		cs = textCells(value+" ", border, x1-x)
+		x = putCells(scr, x, y1, cs)
+		return uv.Rect(start, y1, x-start, 1)
+	}
+	d.themeAt = field("theme", comboThemeShown[d.theme])
+	if x < x1-1 {
+		x = putCells(scr, x, y1, textCells("·", hint, 1))
+	}
+	d.lingoAt = field("lingo", comboLingos[d.lingo])
+	help := " t theme · l lingo · arrows choose · Enter keep · Esc cancel "
+	if room := x1 - x - 2; room > 0 {
+		if cs := textCells(fitStart(help, room), hint, room); len(cs) > 0 {
+			putCells(scr, x1-cellsWidth(cs)-1, y1, cs)
+		}
+	}
+	// The chosen one's double box, in its own colors, last: over the items
+	// above and below it, and over the dialog's frame (and the bottom
+	// line's text) where it reaches it.
 	if d.pos >= 0 && d.pos < len(list) {
+		c := &m.combos.all[list[d.pos]]
+		st := uv.Style{Fg: m.combos.fg(c), Bg: m.combos.bg(c), Attrs: uv.AttrBold}
 		col, row := d.pos/palRows, d.pos%palRows
 		l, r := colX(col), colX(col)+itemW+1
 		y := y0 + 1 + row
-		st := border
-		if d.list != 2 {
-			st = dim
-			st.Attrs |= uv.AttrBold
-		}
 		put(scr, l, y-1, runeCell(paletteTL, st))
 		put(scr, r, y-1, runeCell(paletteTR, st))
 		put(scr, l, y+1, runeCell(paletteBL, st))
@@ -421,16 +368,5 @@ func (m *WM) drawPalette(scr uv.Screen) {
 		}
 		put(scr, l, y, runeCell(paletteV, st))
 		put(scr, r, y, runeCell(paletteV, st))
-	}
-
-	// What to press, in the bottom line under the palette; the window's
-	// name in the top line.
-	help := " Tab list · arrows choose · Enter keep · Esc cancel · Del none "
-	if cs := textCells(fitStart(help, x1-xL-3), hint, x1-xL-3); len(cs) > 0 {
-		putCells(scr, x1-cellsWidth(cs)-1, y1, cs)
-	}
-	who := " " + m.tabName(d.target) + " "
-	if cs := textCells(who, border, colX(palCols-1)-xL-3); len(cs) > 0 {
-		putCells(scr, xL+2, y0, cs)
 	}
 }

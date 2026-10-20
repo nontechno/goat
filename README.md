@@ -41,7 +41,7 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   `show_host`, both on by default). The host is the system's host name.
   Both follow the window: `su`/`sudo -i` shows the new
   user, and while ssh runs in the window, the user and host it logs in to
-  (Linux)
+  (Linux and macOS)
 - After them, when the window's current directory is in a git repository,
   the repository and branch: `└─ 🧑alice 💻myhost 📖nontechno/goat 🌿main ──[]─┘`
   (`show_git`, on by default). The owner and name come from the `origin`
@@ -56,10 +56,10 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 - Per-window colors from **palettes**: 108 background + text pairs from
   [nontechno/color](https://github.com/nontechno/color)
   (`terminal-color-combinations.json`, fetched by `goat -install`). Alt+t
-  opens the palette dialog: choose a theme (dark, in-between, light), a
-  style for the names (Pedantic, Funny, Outrageous, Vulgar, Corporate,
-  Geeky, Wholesome, Sports) and one of the theme's 36 palettes, each shown
-  in its own colors. The window shows each one as you move; Enter keeps
+  opens the palette dialog: one of the theme's 36 palettes, each shown in
+  its own colors; t switches the theme (dark, in-between, light), l the
+  style of the names (Pedantic, Funny, Outrageous, Vulgar, Corporate,
+  Geeky, Wholesome, Sports), both shown in the dialog's bottom line. The window shows each one as you move; Enter keeps
   it, Esc puts the old colors back, Delete goes back to the terminal's own.
   The border takes the background, and its lines and text are made lighter
   or darker where the theme's border colors wouldn't show on it; the cursor
@@ -195,7 +195,7 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
   lighter than the window's background (darker, on a light one), so the
   whole length shows without end marks
 - goat's own windows (help, status, inventory, events) can be set up in
-  `~/.config/goat/system.toml`: title, the key that shows them, palette,
+  `~/.config/goat/system.toml`: title, palette,
   size and position (columns / rows or a percentage of the screen; a
   negative position counts from the right / bottom edge). goat writes the
   palette you choose for one of them, and where you move or resize it, back
@@ -213,8 +213,10 @@ with a one-line status bar at the bottom. Floating windows open on top of it.
 ## Requirements
 
 - Linux, macOS or a BSD with a real terminal emulator
-  (window titles from the running process need Linux's `/proc`; elsewhere the
-  shell name or the program-set title is shown)
+  (the running program's name, directory and user come from `/proc` on
+  Linux and from the system directly on macOS; on the BSDs the shell name
+  or the program-set title is shown, and the directory the shell reports
+  with OSC 7)
 - Go 1.24.2 or newer to build
 
 ## Build and run
@@ -424,6 +426,10 @@ where the report is. A window whose terminal emulator fails on some output
 is reset instead of taking goat down, and the log keeps that output, so the
 problem can be reproduced.
 
+If goat is killed outright (`kill -9`, a closed ssh connection), it can't
+undo what it asked of the terminal: mouse reporting, its keyboard modes,
+the alternate screen. Type `reset` (Enter) to put the terminal right.
+
 ## Differences from float
 
 Fixed along the way:
@@ -435,7 +441,7 @@ Fixed along the way:
   no longer moves the window
 - Every key is sent: Home/End/PageUp/PageDown/Insert/Delete, F1–F12 (goat's
   help, status and inventory windows are Alt+F1–F3, so mc and others keep
-  F1–F3; `system.toml` can change them),
+  F1–F3),
   modifier combinations, and application cursor mode for vim/less/zsh
 - Resizing from the left edge resizes the program's terminal too
 - Shrinking the terminal redraws cleanly and keeps every window reachable

@@ -25,7 +25,8 @@ import (
 // It is polled on goat's existing twice-a-second tick, only while shown:
 // per window, one ioctl for the foreground process group and a read of
 // /proc/<pid>/status; "ssh -G" runs once per ssh process, in the
-// background. Linux only (/proc); elsewhere the identity is goat's own.
+// background. Linux (/proc) and macOS (sysctl, procname_darwin.go);
+// elsewhere the identity is goat's own.
 //
 // Not visible this way: what happens inside the ssh session (su, sudo, a
 // further ssh), since that runs on the other machine.

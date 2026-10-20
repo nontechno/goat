@@ -30,12 +30,30 @@ func TestPaletteDialogLayout(t *testing.T) {
 	key(m, uv.Key{Code: uv.KeyDown}) // the first dark palette
 	screen := settingsScreen(m)
 	dark := m.combos.byTheme[0]
-	for _, want := range []string{"theme", "lingo", "palette", "dark", "in-between", "light",
-		"Pedantic", "Funny", "Outrageous", "Vulgar", "Corporate", "Geeky", "Wholesome", "Sports",
+	for _, want := range []string{"palette", "theme: dark", "lingo: Pedantic",
 		"╔", "╝", "║ " + m.combos.all[dark[0]].names[0], "Enter keep",
 		m.combos.all[dark[12]].names[0], m.combos.all[dark[35]].names[0]} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("dialog lacks %q:\n%s", want, screen)
+		}
+	}
+	var inBox strings.Builder // the dialog alone (the window's own title shows behind it)
+	{
+		scr := uv.NewScreen(m.cols, m.rows)
+		scene{m}.Draw(scr, scr.Bounds())
+		bx := m.palDlg.box
+		for y := bx.Min.Y; y < bx.Max.Y; y++ {
+			for x := bx.Min.X; x < bx.Max.X; x++ {
+				if c := scr.CellAt(x, y); c != nil {
+					inBox.WriteString(c.Content)
+				}
+			}
+			inBox.WriteByte('\n')
+		}
+	}
+	for _, not := range []string{"in-between", "Funny", "Tab", "Del none", m.tabName(a)} {
+		if strings.Contains(inBox.String(), not) {
+			t.Errorf("dialog shows %q:\n%s", not, inBox.String())
 		}
 	}
 	// Each palette is drawn in its own colors.
@@ -46,11 +64,22 @@ func TestPaletteDialogLayout(t *testing.T) {
 	if cell := scr.CellAt(r.Min.X+1, r.Min.Y); cell == nil || cell.Style.Bg != m.combos.bg(c) || cell.Style.Fg != m.combos.fg(c) {
 		t.Errorf("item 14 colors: %+v", cell)
 	}
-	// The lingo renames them.
-	key(m, uv.Key{Code: uv.KeyTab}) // theme
-	key(m, uv.Key{Code: uv.KeyTab}) // lingo
-	key(m, uv.Key{Code: uv.KeyDown})
-	if screen := settingsScreen(m); !strings.Contains(screen, m.combos.all[dark[0]].names[1]) {
+	// The chosen one's double box is in its colors; the column lines in
+	// the frame's.
+	ch := m.combos.get(dark[0])
+	box := m.palDlg.cells[0]
+	if cell := scr.CellAt(box.Min.X-1, box.Min.Y); cell == nil || cell.Content != "║" ||
+		cell.Style.Bg != m.combos.bg(ch) || cell.Style.Fg != m.combos.fg(ch) {
+		t.Errorf("double box: %+v", cell)
+	}
+	_, border, _ := m.dialogStyles()
+	line := m.palDlg.cells[13]
+	if cell := scr.CellAt(line.Min.X-1, line.Min.Y+3); cell == nil || cell.Content != "│" || cell.Style.Fg != border.Fg {
+		t.Errorf("column line: %+v", cell)
+	}
+	// l: the next lingo renames them.
+	key(m, uv.Key{Code: 'l', Text: "l"})
+	if screen := settingsScreen(m); !strings.Contains(screen, m.combos.all[dark[0]].names[1]) || !strings.Contains(screen, "lingo: Funny") {
 		t.Errorf("Funny names not shown:\n%s", screen)
 	}
 }
@@ -70,15 +99,13 @@ func TestPaletteDialogChooseAndKeep(t *testing.T) {
 	if len(a.in.buf) != before {
 		t.Error("keys reached the window")
 	}
-	// Another theme: the same place in its list.
-	key(m, uv.Key{Code: uv.KeyTab}) // theme
-	key(m, uv.Key{Code: uv.KeyDown})
+	// Another theme (t): the same place in its list.
+	key(m, uv.Key{Code: 't', Text: "t"})
 	if a.pal != m.combos.byTheme[1][13]+1 {
 		t.Fatalf("in-between: palette %d", a.pal)
 	}
-	// The lingo: Funny, kept in local.toml.
-	key(m, uv.Key{Code: uv.KeyTab}) // lingo
-	key(m, uv.Key{Code: uv.KeyDown})
+	// The lingo (l): Funny, kept in local.toml.
+	key(m, uv.Key{Code: 'l', Text: "l"})
 	key(m, uv.Key{Code: uv.KeyEnter})
 	if m.palDlg != nil || a.pal != m.combos.byTheme[1][13]+1 || m.lingo != 1 {
 		t.Fatalf("Enter: open %v, palette %d, lingo %d", m.palDlg != nil, a.pal, m.lingo)
@@ -116,22 +143,29 @@ func TestPaletteDialogChooseAndKeep(t *testing.T) {
 	}
 }
 
-// ← from the first column goes to the lingo list; clicks choose; a double
-// click keeps.
+// A click on the theme or lingo goes to the next one (Shift+t, Shift+l:
+// back, round); clicks choose a palette; a double click keeps it.
 func TestPaletteDialogMouseAndKeys(t *testing.T) {
 	m, _, a, _ := paletteWM(t)
 	m.focus(a)
 	m.openPalette()
+	key(m, uv.Key{Code: 'T', Mod: uv.ModShift, Text: "T"}) // dark, back: light
 	settingsScreen(m)
-	key(m, uv.Key{Code: uv.KeyLeft})
-	if m.palDlg.list != 1 {
-		t.Fatalf("← went to list %d", m.palDlg.list)
+	if m.palDlg.theme != 2 {
+		t.Fatalf("Shift+t: theme %d", m.palDlg.theme)
 	}
-	r := m.palDlg.themeRows[2] // light
-	m.handleMouse(uv.MouseClickEvent{X: r.Min.X + 1, Y: r.Min.Y, Button: uv.MouseLeft})
-	if m.palDlg.theme != 2 || m.palDlg.list != 0 {
-		t.Fatalf("theme click: %d (list %d)", m.palDlg.theme, m.palDlg.list)
+	r := m.palDlg.themeAt
+	m.handleMouse(uv.MouseClickEvent{X: r.Min.X + 1, Y: r.Min.Y, Button: uv.MouseLeft}) // light, on: dark
+	if m.palDlg.theme != 0 {
+		t.Fatalf("theme click: %d", m.palDlg.theme)
 	}
+	settingsScreen(m)
+	r = m.palDlg.lingoAt
+	m.handleMouse(uv.MouseClickEvent{X: r.Max.X - 2, Y: r.Min.Y, Button: uv.MouseLeft})
+	if m.palDlg.lingo != 1 {
+		t.Fatalf("lingo click: %d", m.palDlg.lingo)
+	}
+	m.palTheme(2)
 	settingsScreen(m)
 	c := m.palDlg.cells[30]
 	click := uv.MouseClickEvent{X: c.Min.X + 2, Y: c.Min.Y, Button: uv.MouseLeft}
@@ -170,5 +204,57 @@ func TestNewWindowNextPalette(t *testing.T) {
 	sameColorsAs(a, w)
 	if w.pal != a.pal || w.bgColor != a.bgColor {
 		t.Fatal("same colors")
+	}
+}
+
+// The quit shortcut isn't held up by the dialog: it closes it (colors
+// put back) and quits, as anywhere else.
+func TestPaletteDialogQuit(t *testing.T) {
+	m, _, a, _ := paletteWM(t)
+	m.focus(a)
+	m.openPalette()
+	key(m, uv.Key{Code: uv.KeyDown}) // a preview
+	key(m, uv.Key{Code: 'q', Mod: uv.ModAlt})
+	if m.palDlg != nil || a.pal != 0 {
+		t.Fatalf("dialog still open %v, palette %d", m.palDlg != nil, a.pal)
+	}
+	if !m.quit && m.quitAsk == nil {
+		t.Fatal("Alt+q neither quit nor asked")
+	}
+}
+
+func TestSettingsDialogQuit(t *testing.T) {
+	m, _, a, _ := paletteWM(t)
+	m.focus(a)
+	_ = m.run(actSettings)
+	if m.settings == nil {
+		t.Fatal("no settings dialog")
+	}
+	key(m, uv.Key{Code: 'q', Mod: uv.ModAlt})
+	if m.settings != nil || (!m.quit && m.quitAsk == nil) {
+		t.Fatalf("settings open %v, quit %v, asked %v", m.settings != nil, m.quit, m.quitAsk != nil)
+	}
+}
+
+// The chosen palette's double box is drawn over the dialog's frame (and the
+// bottom line's text) where it reaches it: the top row, the bottom row.
+func TestPaletteBoxOverFrame(t *testing.T) {
+	m, _, a, _ := paletteWM(t)
+	m.focus(a)
+	m.openPalette()
+	for _, pos := range []int{palRows - 1, 2*palRows + 0} { // bottom of column 1, top of column 3
+		m.palDlg.pos = pos
+		scr := uv.NewScreen(m.cols, m.rows)
+		scene{m}.Draw(scr, scr.Bounds())
+		r := m.palDlg.cells[pos]
+		y := r.Min.Y + 1 // the box's bottom edge
+		if pos%palRows == 0 {
+			y = r.Min.Y - 1 // its top edge
+		}
+		for x := r.Min.X - 1; x <= r.Max.X; x++ {
+			if c := scr.CellAt(x, y); c == nil || !strings.ContainsAny(c.Content, "═╔╗╚╝") {
+				t.Fatalf("position %d: frame over the box at %d,%d: %+v", pos, x, y, c)
+			}
+		}
 	}
 }

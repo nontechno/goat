@@ -210,3 +210,30 @@ func TestInstallCombosSources(t *testing.T) {
 		t.Fatalf("sources: %v", combosSources)
 	}
 }
+
+// Writing a config file through a link replaces the file it points to,
+// not the link, and keeps the file's permissions.
+func TestWriteFileAtomicLink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "dotfiles", "system.toml")
+	_ = os.MkdirAll(filepath.Dir(real), 0o755)
+	if err := os.WriteFile(real, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "system.toml")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	if err := writeFileAtomic(link, []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("the link was replaced")
+	}
+	if b, _ := os.ReadFile(real); string(b) != "new\n" {
+		t.Fatalf("target: %q", b)
+	}
+	if fi, _ := os.Stat(real); fi.Mode().Perm() != 0o600 {
+		t.Errorf("permissions %v", fi.Mode().Perm())
+	}
+}

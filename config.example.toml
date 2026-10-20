@@ -167,6 +167,14 @@ title_source = "process"
 #   "off"  - never
 true_color = "auto"
 
+# Palette colors (Alt+t): which of each palette's two descriptions goat
+# uses.
+#   "rgb"  - its #RRGGBB colors (shown as the nearest of the 256 colors
+#            when 24-bit color is off)
+#   "ansi" - its xterm-256 color indexes
+#   "auto" - "rgb" when 24-bit color is on (true_color), else "ansi"
+palette_colors = "rgb"
+
 # Ask the terminal to report keys the classic encoding can't tell apart
 # (Shift+Enter from Enter, Ctrl+i from Tab, Esc from Alt), with kitty's
 # keyboard protocol or xterm's modifyOtherKeys, so goat can pass them on to

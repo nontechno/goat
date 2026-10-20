@@ -297,7 +297,7 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 			logger.Warn("palettes", "msg", w)
 		}
 		if m.combos != nil {
-			m.combos.trueColor = m.trueColor
+			m.combos.trueColor = paletteRGB(cfg.PaletteColors, m.trueColor)
 			logger.Info("palettes", "count", len(m.combos.all), "true_color", m.combos.trueColor)
 		}
 		m.sys.path = filepath.Join(dir, systemFile)
@@ -388,6 +388,8 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 			m.handlePty(msg)
 		case msg := <-m.identOut:
 			m.handleIdent(msg)
+		case msg := <-m.gitOut:
+			m.applyGit(msg)
 		case <-m.escFire:
 			m.escExpired()
 		case msg := <-copyErrs:

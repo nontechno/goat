@@ -92,8 +92,12 @@ func (m *WM) logEvent(w *Window, kind eventKind, text string) {
 		}
 	}
 	if len(ev.list) >= maxEvents {
-		ev.list = append(ev.list[:0], ev.list[len(ev.list)-maxEvents+1:]...)
-		ev.full = true
+		// The oldest go. The window keeps its lines (its history drops the
+		// oldest by itself): new ones are still appended, not the whole
+		// list written again, and a view scrolled back stays put.
+		drop := len(ev.list) - maxEvents + 1
+		ev.list = append(ev.list[:0], ev.list[drop:]...)
+		ev.synced = max(ev.synced-drop, 0)
 	}
 	ev.list = append(ev.list, event{at: now, win: who, kind: kind, text: text, count: 1})
 	m.eventAdded()
@@ -320,6 +324,7 @@ func (m *WM) toggleEvents() {
 		m.ev.win = m.newEventsWindow()
 	}
 	w := m.ev.win
+	m.applyHostColors(w)           // the terminal's colors may have changed meanwhile
 	m.place(w, w.x, w.y, w.w, w.h) // the screen may have changed size
 	m.windows = append(m.windows, w)
 	m.ev.unseen, m.ev.changed = 0, true

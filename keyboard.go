@@ -51,6 +51,34 @@ const kittyStackMax = 16
 type keyboardState struct {
 	stacks  [2][]int // kitty flags: main screen, alternate screen
 	modKeys int      // modifyOtherKeys level (0, 1, 2)
+	// owner is the foreground process group that last set main-screen
+	// modes (0: unknown). Once another one is in front, other than the
+	// shell's, those modes are dropped (dropOrphanKeyboard).
+	owner int
+}
+
+// noteKeyboardOwner remembers who set main-screen keyboard modes.
+func (w *Window) noteKeyboardOwner() {
+	if w.screenIndex() == 0 && w.cmd != nil {
+		w.kbd.owner = foregroundPid(w.ptmx, w.cmd)
+	}
+}
+
+// dropOrphanKeyboard forgets the main screen's keyboard modes when the
+// program that set them is no longer in front: it was killed, or quit,
+// without undoing them, and the shell would get Ctrl+C as CSI 99;5u. The
+// shell's own modes (fish sets them) are kept. Reports whether it did.
+func (w *Window) dropOrphanKeyboard() bool {
+	k := &w.kbd
+	if k.owner <= 0 || k.owner == w.pid() || (len(k.stacks[0]) == 0 && k.modKeys == 0) || w.closed || w.cmd == nil {
+		return false
+	}
+	if fg := foregroundPid(w.ptmx, w.cmd); fg <= 0 || fg == k.owner {
+		return false
+	}
+	logger.Info("keyboard modes dropped: the program that set them is gone", "window", w.id, "pgrp", k.owner)
+	k.stacks[0], k.modKeys, k.owner = nil, 0, 0
+	return true
 }
 
 // screenIndex is 1 on the alternate screen, else 0.
@@ -82,6 +110,7 @@ func (w *Window) installKeyboard() {
 		return n
 	}
 	w.emu.RegisterCsiHandler(ansi.Command('>', 0, 'u'), func(p ansi.Params) bool { // push
+		w.noteKeyboardOwner()
 		s := &w.kbd.stacks[w.screenIndex()]
 		*s = append(*s, param(p, 0, 0)&31)
 		if len(*s) > kittyStackMax {
@@ -95,6 +124,7 @@ func (w *Window) installKeyboard() {
 		return true
 	})
 	w.emu.RegisterCsiHandler(ansi.Command('=', 0, 'u'), func(p ansi.Params) bool { // set
+		w.noteKeyboardOwner()
 		s := &w.kbd.stacks[w.screenIndex()]
 		if len(*s) == 0 {
 			*s = append(*s, 0)
@@ -116,6 +146,7 @@ func (w *Window) installKeyboard() {
 	})
 	w.emu.RegisterCsiHandler(ansi.Command('>', 0, 'm'), func(p ansi.Params) bool { // XTMODKEYS
 		if param(p, 0, 0) == 4 {
+			w.noteKeyboardOwner()
 			w.kbd.modKeys = min(param(p, 1, 0), 2)
 		}
 		return true

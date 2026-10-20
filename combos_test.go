@@ -75,3 +75,29 @@ func TestCombosProblems(t *testing.T) {
 		t.Errorf("html: %v %v", s, warns)
 	}
 }
+
+// palette_colors: #RRGGBB by default; xterm-256 indexes when asked; "auto"
+// follows true_color.
+func TestPaletteColorsSetting(t *testing.T) {
+	if c, w := parseConfig(""); len(w) != 0 || c.PaletteColors != "rgb" {
+		t.Errorf("default %q %v", c.PaletteColors, w)
+	}
+	if c, w := parseConfig("palette_colors = \"hex\"\n"); len(w) != 1 || c.PaletteColors != "rgb" {
+		t.Errorf("bad value: %q %v", c.PaletteColors, w)
+	}
+	for _, tc := range []struct {
+		set       string
+		trueColor bool
+		want      bool
+	}{{"rgb", false, true}, {"rgb", true, true}, {"ansi", true, false}, {"auto", true, true}, {"auto", false, false}} {
+		if got := paletteRGB(tc.set, tc.trueColor); got != tc.want {
+			t.Errorf("%s, 24-bit %v: %v", tc.set, tc.trueColor, got)
+		}
+	}
+	s := testCombos(t)
+	c := &s.all[0]
+	s.trueColor = true
+	if !sameColor(s.bg(c), c.bgRGB) {
+		t.Error("rgb: not the #RRGGBB color")
+	}
+}

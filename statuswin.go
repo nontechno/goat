@@ -314,9 +314,12 @@ func (m *WM) combosInfo() string {
 	if m.combos == nil {
 		return "none: " + combosFile + " missing (goat -install)"
 	}
-	depth := "256 colors"
+	depth := "xterm-256 indexes (palette_colors)"
 	if m.combos.trueColor {
-		depth = "24-bit color"
+		depth = "#RRGGBB colors (palette_colors)"
+		if !m.trueColor {
+			depth += ", shown as the nearest of 256"
+		}
 	}
 	return fmt.Sprintf("%d · names: %s · %s", len(m.combos.all), comboLingos[m.lingo], depth)
 }

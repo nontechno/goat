@@ -33,7 +33,7 @@ title = "Status"
 activate = "f3"
 theme = 43212
 size = [60%, 60%]
-possition = [-100.0]
+possition = [-100]
 
 [events]
 title = "Events"
@@ -57,30 +57,13 @@ func TestQuotePercents(t *testing.T) {
 	}
 }
 
-func TestParsePanelKey(t *testing.T) {
-	for in, want := range map[string]panelKeySpec{
-		"f1": {code: uv.KeyF1}, "F12": {code: uv.KeyF12}, "alt-": {code: '-', alt: true},
-		"alt+h": {code: 'h', alt: true}, "Alt+H": {code: 'H', alt: true}, "alt+-": {code: '-', alt: true},
-		"alt+f1": {code: uv.KeyF1, alt: true}, "Alt-F12": {code: uv.KeyF12, alt: true}, "alt+f": {code: 'f', alt: true},
-	} {
-		if got, err := parsePanelKey(in); err != nil || got != want {
-			t.Errorf("%q: %+v %v", in, got, err)
-		}
-	}
-	for _, bad := range []string{"f13", "alt+f13", "alt+f0", "ctrl+x", "alt+1", "alt", ""} {
-		if _, err := parsePanelKey(bad); err == nil {
-			t.Errorf("%q accepted", bad)
-		}
-	}
-}
-
 func TestParseSystemExample(t *testing.T) {
 	conf, warns, err := parseSystem(systemExample)
 	if err != nil || len(warns) != 0 {
 		t.Fatal(err, warns)
 	}
 	h := conf["help"]
-	if h.title != "❓Help" || h.key == nil || h.key.code != uv.KeyF1 || h.theme != 32342 ||
+	if h.title != "❓Help" || h.theme != 32342 ||
 		h.size != [2]dimension{{40, false, true}, {100, true, true}} ||
 		h.pos != [2]dimension{{-40, false, true}, {0, false, true}} || h.posKey != "possition" {
 		t.Errorf("help: %+v", h)
@@ -89,13 +72,16 @@ func TestParseSystemExample(t *testing.T) {
 		inv.size[0] != (dimension{60, true, true}) {
 		t.Errorf("inventory: %+v", inv)
 	}
-	if ev := conf["events"]; ev.key == nil || *ev.key != (panelKeySpec{code: '-', alt: true}) || ev.pos[0].v != 30 {
+	if ev := conf["events"]; ev.pos[0].v != 30 {
 		t.Errorf("events: %+v", ev)
 	}
 	// Mistakes: reported, the rest used.
 	conf, warns, err = parseSystem("[help]\nsize = [1,2,3]\ncolour = 1\nactivate = \"f99\"\ntitle = \"ok\"\n[nope]\nx = 1\n")
-	if err != nil || len(warns) != 4 || conf["help"].title != "ok" {
+	if err != nil || len(warns) != 3 || conf["help"].title != "ok" { // (activate: ignored)
 		t.Errorf("mistakes: %v %v %+v", err, warns, conf)
+	}
+	if _, warns, _ := parseSystem("[inventory]\npossition = [-100.0]\n"); len(warns) != 1 || !strings.Contains(warns[0], "comma") {
+		t.Errorf("a dot for a comma: %v", warns)
 	}
 	if _, _, err := parseSystem("[help\n"); err == nil {
 		t.Error("broken TOML accepted")
@@ -119,9 +105,9 @@ func systemWM(t *testing.T, text string) *WM {
 
 func TestSystemPanels(t *testing.T) {
 	text := strings.ReplaceAll(systemExample, "theme = 32342", "theme = 28649") // an id the palettes have
-	text = strings.ReplaceAll(text, `activate = "f2"`, `activate = "f4"`)
+	text = strings.ReplaceAll(text, `activate = "f2"`, `activate = "f4"`)       // (ignored: the keys are fixed)
 	m := systemWM(t, text)
-	key(m, uv.Key{Code: uv.KeyF1})
+	key(m, uv.Key{Code: uv.KeyF1, Mod: uv.ModAlt})
 	h := m.help.win
 	if !m.helpShown() || m.tabName(h) != "❓Help" {
 		t.Fatalf("help: shown %v, title %q", m.helpShown(), m.tabName(h))
@@ -132,17 +118,17 @@ func TestSystemPanels(t *testing.T) {
 	if c := m.combos.get(h.pal - 1); c == nil || c.id != 28649 {
 		t.Errorf("help palette %d", h.pal)
 	}
-	// F2 is free; F4 is the status window's.
-	key(m, uv.Key{Code: uv.KeyF2})
-	if m.statusWinShown() {
-		t.Error("F2 still shows the status window")
-	}
+	// activate is ignored: F4 does nothing, Alt+F2 shows the status window.
 	key(m, uv.Key{Code: uv.KeyF4})
+	if m.statusWinShown() {
+		t.Error("activate = \"f4\" was used")
+	}
+	key(m, uv.Key{Code: uv.KeyF2, Mod: uv.ModAlt})
 	if !m.statusWinShown() || m.tabName(m.statWin.win) != "Status" || m.statWin.win.x != 120 {
-		t.Errorf("F4: shown %v, %q, x %d", m.statusWinShown(), m.tabName(m.statWin.win), m.statWin.win.x)
+		t.Errorf("Alt+F2: shown %v, %q, x %d", m.statusWinShown(), m.tabName(m.statWin.win), m.statWin.win.x)
 	}
 	// inventory: 60% x 60%, 100 from the right.
-	key(m, uv.Key{Code: uv.KeyF3})
+	key(m, uv.Key{Code: uv.KeyF3, Mod: uv.ModAlt})
 	if w := m.inv.win; w.w != 120 || w.h != 24 || w.x != 80 {
 		t.Errorf("inventory geometry %d,%d %dx%d", w.x, w.y, w.w, w.h)
 	}
@@ -151,9 +137,9 @@ func TestSystemPanels(t *testing.T) {
 	if !m.eventsShown() || m.ev.win.x != 30 || m.tabName(m.ev.win) != "Events" {
 		t.Errorf("events: shown %v x %d", m.eventsShown(), m.ev.win.x)
 	}
-	// The help lists the keys as set.
-	if all := strings.Join(m.helpLines(100), "\n"); !strings.Contains(all, "F4 ") {
-		t.Errorf("help doesn't show F4:\n%s", all)
+	// The help lists the fixed keys.
+	if all := strings.Join(m.helpLines(100), "\n"); !strings.Contains(all, "Alt+F2") || strings.Contains(all, "F4") {
+		t.Errorf("help keys:\n%s", all)
 	}
 	// An unknown palette id is reported.
 	found := false
@@ -242,24 +228,5 @@ func TestSystemReload(t *testing.T) {
 	m.refreshSystem(time.Now().Add(3 * systemRecheckEvery))
 	if len(m.ev.list) != n+1 || m.tabName(m.help.win) != "two" {
 		t.Errorf("broken file: %d new events, title %q", len(m.ev.list)-n, m.tabName(m.help.win))
-	}
-}
-
-// An activate key that is also a shortcut, or another window's key, is
-// warned about when system.toml is read.
-func TestSystemKeyCollisions(t *testing.T) {
-	m := systemWM(t, "[help]\nactivate = \"alt+h\"\n[status]\nactivate = \"alt+f3\"\n[events]\nactivate = \"alt-\"\n")
-	var texts []string
-	for _, e := range m.ev.list {
-		texts = append(texts, e.text)
-	}
-	all := strings.Join(texts, "\n")
-	for _, want := range []string{"[help] activate: Alt+h is also move left", "[inventory] activate: Alt+F3 is the status window's already"} {
-		if !strings.Contains(all, want) {
-			t.Errorf("no warning %q:\n%s", want, all)
-		}
-	}
-	if strings.Contains(all, "[events]") {
-		t.Errorf("the events window's own Alt+- warned about:\n%s", all)
 	}
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"path"
 	"slices"
@@ -217,4 +219,33 @@ func nouns(n int, one, many string) string {
 		return "1 " + one
 	}
 	return fmtCount(n) + " " + many
+}
+
+// parseProcArgs2 reads macOS's kern.procargs2: argc (32 bits, little
+// endian), the executable's path, NUL padding, then argc arguments, each
+// ending in a NUL (then the environment, not read).
+func parseProcArgs2(b []byte) []string {
+	if len(b) < 4 {
+		return nil
+	}
+	argc := int(binary.LittleEndian.Uint32(b[:4]))
+	rest := b[4:]
+	i := bytes.IndexByte(rest, 0) // past the executable's path
+	if i < 0 {
+		return nil
+	}
+	rest = rest[i:]
+	for len(rest) > 0 && rest[0] == 0 {
+		rest = rest[1:]
+	}
+	var args []string
+	for len(args) < argc && len(rest) > 0 {
+		j := bytes.IndexByte(rest, 0)
+		if j < 0 {
+			j = len(rest)
+		}
+		args = append(args, string(rest[:j]))
+		rest = rest[min(j+1, len(rest)):]
+	}
+	return args
 }

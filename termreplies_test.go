@@ -38,7 +38,7 @@ func hookedWindow(t *testing.T, m *WM) (*Window, func() string) {
 			_ = pw.CloseWithError(io.EOF)
 		}
 	})
-	marker := ansi.DeviceStatusReport(ansi.DECStatusReport(0)) // the emulator's answer to DSR 5: "OK"
+	const marker = "\x1b[0n" // the answer to DSR 5: "OK"
 	replies := func() string {
 		t.Helper()
 		_ = w.feed([]byte("\x1b[5n")) // (its reader takes the answer: ch has room)

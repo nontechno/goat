@@ -30,8 +30,7 @@ import (
 // old one). A key another shortcut has already is a collision: goat says
 // which, and Enter swaps the two keys (Esc: neither changes). Delete puts
 // the chosen shortcut back to its built-in key (with the same check).
-// Alt+1 … 9 and Alt+0 are the windows' and can't be taken; a key that also
-// shows one of goat's windows (system.toml's activate) is warned about too.
+// Alt+1 … 9 and Alt+0 are the windows' and can't be taken.
 
 // keymapFile is the file's name, in the config folder.
 const keymapFile = "keymap.toml"
@@ -220,8 +219,10 @@ func (m *WM) helpCapture(k uv.Key) {
 		}
 	}
 	r, ok := bindingRune(k)
-	if !ok || r == ' ' || (r >= '0' && r <= '9') || k.Mod.Contains(uv.ModCtrl) {
-		h.msg = "that key can't be a shortcut: press a character key, with or without Alt (not a digit: Alt+0 … 9 are the windows'), or Esc"
+	// Alt+[ and Alt+O can't work where Alt arrives as Esc first: Esc [ and
+	// Esc O start the escape sequences of other keys.
+	if !ok || r == ' ' || r == '[' || r == 'O' || (r >= '0' && r <= '9') || k.Mod.Contains(uv.ModCtrl) {
+		h.msg = "that key can't be a shortcut: press a character key, with or without Alt (not a digit: Alt+0 … 9 are the windows'; not [ or O: Esc [ and Esc O start other keys), or Esc"
 		m.rewriteHelp(false)
 		return
 	}
@@ -238,9 +239,6 @@ func (m *WM) proposeKey(act action, r rune) {
 		h.msg = fmt.Sprintf("%s is Alt+%c already", actionNames[act], r)
 		m.rewriteHelp(false)
 		return
-	}
-	if name := m.panelForKey(uv.Key{Code: r, Mod: uv.ModAlt}); name != "" {
-		e.warnings = append(e.warnings, fmt.Sprintf("Alt+%c also shows the %s window (system.toml), which goes first", r, name))
 	}
 	if m.macOption && strings.ContainsRune("einu`", r) {
 		e.warnings = append(e.warnings, fmt.Sprintf("Option+%c is a dead key on macOS: there it works as Esc, then %c", r, r))

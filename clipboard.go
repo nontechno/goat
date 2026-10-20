@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -81,16 +82,43 @@ func runClipboardCommand(args []string, text string, report func(string)) {
 		}
 		return err
 	}
+	// One copy runs at a time; texts arriving meanwhile (a program setting
+	// the clipboard over and over) wait, and only the latest is copied.
+	clipRun.mu.Lock()
+	if clipRun.running {
+		clipRun.pending = &text
+		clipRun.mu.Unlock()
+		return
+	}
+	clipRun.running = true
+	clipRun.mu.Unlock()
 	go func() {
-		err := run(args)
-		// tmux older than 3.2 has no -w: fall back to just its buffer.
-		if err != nil && args[0] == "tmux" && len(args) == 4 && args[2] == "-w" {
-			err = run([]string{"tmux", "load-buffer", "-"})
-		}
-		if err != nil {
-			report(fmt.Sprintf("copy with %s failed: %v", args[0], err))
+		for {
+			err := run(args)
+			// tmux older than 3.2 has no -w: fall back to just its buffer.
+			if err != nil && args[0] == "tmux" && len(args) == 4 && args[2] == "-w" {
+				err = run([]string{"tmux", "load-buffer", "-"})
+			}
+			if err != nil {
+				report(fmt.Sprintf("copy with %s failed: %v", args[0], err))
+			}
+			clipRun.mu.Lock()
+			if clipRun.pending == nil {
+				clipRun.running = false
+				clipRun.mu.Unlock()
+				return
+			}
+			text, clipRun.pending = *clipRun.pending, nil
+			clipRun.mu.Unlock()
 		}
 	}()
+}
+
+// clipRun is the clipboard command running (runClipboardCommand).
+var clipRun struct {
+	mu      sync.Mutex
+	running bool
+	pending *string
 }
 
 // hookClipboard forwards OSC 52 clipboard writes from w's program to the

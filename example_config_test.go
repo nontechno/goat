@@ -19,7 +19,7 @@ func TestExampleConfig(t *testing.T) {
 	d := DefaultConfig()
 	if c.Keys != d.Keys || c.Layout != d.Layout || c.AltTimeoutMs != d.AltTimeoutMs ||
 		c.ScrollbackLines != d.ScrollbackLines || c.Frame != d.Frame || c.WrapLines != d.WrapLines ||
-		c.NowrapWidth != d.NowrapWidth || c.ShowGit != d.ShowGit || c.TrueColor != d.TrueColor ||
+		c.NowrapWidth != d.NowrapWidth || c.ShowGit != d.ShowGit || c.TrueColor != d.TrueColor || c.PaletteColors != d.PaletteColors ||
 		c.KeyboardEnhancements != d.KeyboardEnhancements || c.MacOptionArrows != d.MacOptionArrows ||
 		c.RepaintSeconds != d.RepaintSeconds || c.DisableMouse != d.DisableMouse || c.MacOptionKeys != d.MacOptionKeys || c.StatusShowDir != d.StatusShowDir || c.ShowHost != d.ShowHost || c.ShowUser != d.ShowUser || c.LogFile != d.LogFile || c.LogLevel != d.LogLevel || c.TitleSource != d.TitleSource ||
 		c.ClipboardOSC52 != d.ClipboardOSC52 || c.CopyCommand != d.CopyCommand ||

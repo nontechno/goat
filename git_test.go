@@ -121,6 +121,7 @@ func TestGitInFrame(t *testing.T) {
 	a.oscDir = repo   // a is not the focused window
 	now := time.Now()
 	m.tick(now)
+	settleGit(t, m)
 	border := func(w *Window) string {
 		t.Helper()
 		scr := uv.NewScreen(m.cols, m.rows)
@@ -146,6 +147,7 @@ func TestGitInFrame(t *testing.T) {
 	later := now.Add(time.Second)
 	_ = os.Chtimes(head, later, later)
 	m.tick(later)
+	settleGit(t, m)
 	if got := border(a); !strings.Contains(got, branchSymbol+"feature") {
 		t.Fatalf("after the switch: %q", got)
 	}
@@ -174,13 +176,35 @@ func TestGitInFrame(t *testing.T) {
 	// Leaving the repository; turned off.
 	a.oscDir = t.TempDir()
 	m.tick(now.Add(2 * time.Second))
+	settleGit(t, m)
 	if strings.Contains(border(a), repoSymbol) {
 		t.Error("still shown outside the repository")
 	}
 	a.oscDir = repo
 	m.tick(now.Add(3 * time.Second))
+	settleGit(t, m)
 	m.cfg.ShowGit = false
 	if strings.Contains(border(a), repoSymbol) {
 		t.Error("shown with show_git = false")
+	}
+}
+
+// settleGit waits for the git lookups started in the background.
+func settleGit(t *testing.T, m *WM) {
+	t.Helper()
+	for {
+		busy := false
+		for _, w := range m.windows {
+			busy = busy || w.gitBusy
+		}
+		if !busy {
+			return
+		}
+		select {
+		case msg := <-m.gitOut:
+			m.applyGit(msg)
+		case <-time.After(5 * time.Second):
+			t.Fatal("git lookup never ended")
+		}
 	}
 }

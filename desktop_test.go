@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image/color"
 	"os"
 	"path/filepath"
@@ -123,7 +124,7 @@ func TestDesktopColorsSavedAndRestored(t *testing.T) {
 		t.Fatalf("saved %+v ok %v", d, ok)
 	}
 	data, _ := os.ReadFile(m.localPath)
-	if !strings.Contains(string(data), "# "+want.names[0]) {
+	if !strings.Contains(string(data), `palette = "`+want.names[0]+`"`) {
 		t.Fatalf("name missing:\n%s", data)
 	}
 
@@ -144,8 +145,8 @@ func TestDesktopColorsSavedAndRestored(t *testing.T) {
 
 	// Restored by the palette's id: with 24-bit colors on, its 24-bit
 	// colors (not the 256 colors saved), still that palette.
-	if d.pal != want.id {
-		t.Fatalf("palette id saved: %d, want %d", d.pal, want.id)
+	if d.pal != want.names[0] {
+		t.Fatalf("palette saved: %q, want %q", d.pal, want.names[0])
 	}
 	m.combos.trueColor = true
 	m.desk, _, _ = readDesktopColors(m.localPath)
@@ -154,6 +155,13 @@ func TestDesktopColorsSavedAndRestored(t *testing.T) {
 		t.Fatalf("restored by id: bg %v palette %d", w.bgColor, w.pal)
 	}
 	m.combos.trueColor = false
+	// An id, as earlier versions wrote it, is read too.
+	m.desk = desktopColors{pal: fmt.Sprint(want.id)}
+	w.pal = 0
+	m.restoreDesktop(w)
+	if c := m.combos.get(w.pal - 1); c == nil || c.id != want.id {
+		t.Fatalf("restored by an old id: palette %d", w.pal)
+	}
 
 	// Saved colors that wouldn't show together get a readable text color.
 	m.desk = desktopColors{bg: ansi.IndexedColor(231), fg: ansi.IndexedColor(255)}

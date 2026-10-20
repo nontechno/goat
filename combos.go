@@ -58,9 +58,10 @@ type combo struct {
 type comboSet struct {
 	all     []combo
 	byTheme [3][]int // indexes into all, in file order
-	// trueColor: use the exact RGB colors (goat passes 24-bit color on:
-	// truecolor.go), else the xterm-256 indexes (the same everywhere,
-	// macOS Terminal included).
+	// trueColor: use the #RRGGBB colors, else the xterm-256 indexes (the
+	// same everywhere, macOS Terminal included). config.toml's
+	// palette_colors decides (paletteRGB); without 24-bit color the
+	// renderer shows #RRGGBB as the nearest of the 256 colors.
 	trueColor bool
 }
 
@@ -346,4 +347,17 @@ func (s *comboSet) tone(c *combo) tone {
 		return toneLight
 	}
 	return toneOf(c.bgRGB)
+}
+
+// paletteRGB reports whether palettes use their #RRGGBB colors:
+// palette_colors "rgb" (the default) always, "ansi" never, "auto" when
+// goat passes 24-bit color on.
+func paletteRGB(setting string, trueColor bool) bool {
+	switch setting {
+	case "ansi":
+		return false
+	case "auto":
+		return trueColor
+	}
+	return true
 }
