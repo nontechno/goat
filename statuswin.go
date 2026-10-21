@@ -164,6 +164,7 @@ func (m *WM) statusWinText(now time.Time) []infoSection {
 		row("on", hostSymbol+shownHost+" as "+userSymbol+user),
 		row("terminal", fmt.Sprintf("%s · %d×%d", term, m.cols, m.rows)),
 		row("colors", m.colorsInfo()),
+		row("pointer", m.pointerInfo()),
 		row("config", orNone(homeShort(m.cfgPath, m.home), "(defaults: no config.toml)")),
 		row("local", orNone(homeShort(m.localPath, m.home), "(none)")),
 		row("aliases", m.aliasInfo()),

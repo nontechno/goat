@@ -91,6 +91,11 @@ type WM struct {
 	// 24-bit color to the terminal and its programs, and why (truecolor.go).
 	trueColor    bool
 	trueColorWhy string
+	// Mouse pointer shapes (pointer.go): on when the terminal takes them;
+	// the shape for the next frame.
+	pointerOn  bool
+	pointerWhy string
+	pointer    pointerShape
 	// A character cell in pixels, as the terminal told goat (0: not
 	// known); programs asking get it (termreplies.go).
 	cellW, cellH int

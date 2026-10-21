@@ -61,6 +61,10 @@ func (m *WM) handleMouse(ev uv.MouseEvent) {
 	if m.cfg.DisableMouse {
 		return
 	}
+	defer func() { // the pointer for what is under it now (pointer.go)
+		mo := ev.Mouse()
+		m.updatePointer(mo.X, mo.Y)
+	}()
 	if m.settings != nil {
 		m.settingsMouse(ev)
 		return

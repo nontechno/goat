@@ -175,6 +175,20 @@ true_color = "auto"
 #   "auto" - "rgb" when 24-bit color is on (true_color), else "ansi"
 palette_colors = "rgb"
 
+# Mouse pointer shapes: an arrow over frames and title bars, a text beam
+# over text, resize arrows over the edges and corners. Only terminals that
+# take OSC 22 can show them: kitty, ghostty, foot, iTerm2 (3.5 or newer)
+# and xterm; macOS Terminal shows its own pointer whatever goat asks.
+#   "auto" - for the terminals above, as their environment shows them
+#   "on" / "off"
+# Alt+F2 (status) shows what goat decided, and why.
+pointer_shapes = "auto"
+
+# Empty your terminal's own history (the lines above, and so its scrollbar)
+# when goat starts. What the terminal showed is kept and comes back when
+# goat ends; only the lines scrolled off before it are gone.
+clear_host_scrollback = false
+
 # Ask the terminal to report keys the classic encoding can't tell apart
 # (Shift+Enter from Enter, Ctrl+i from Tab, Esc from Alt), with kitty's
 # keyboard protocol or xterm's modifyOtherKeys, so goat can pass them on to

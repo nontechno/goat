@@ -199,7 +199,11 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 		cols, rows = 80, 24
 	}
 	scr := newHostScreen(out, os.Environ(), cols, rows)
-	scr.keyboard = cfg.KeyboardEnhancements                               // Shift+Enter & co. (keyboard.go)
+	scr.keyboard = cfg.KeyboardEnhancements                           // Shift+Enter & co. (keyboard.go)
+	ptrNames, ptrWhy := hostPointers(cfg.PointerShapes, os.Environ()) // pointer.go
+	scr.pointers, scr.pointerOff = ptrNames, cfg.PointerShapes == "off"
+	scr.clearScrollback = cfg.ClearHostScrollback
+	logger.Info("pointer shapes", "on", ptrNames != nil, "because", ptrWhy, "setting", cfg.PointerShapes)
 	trueColor, trueWhy := hostTrueColor(cfg.TrueColor, out, os.Environ()) // truecolor.go
 	scr.rend.SetColorProfile(colorProfile(trueColor))
 	logger.Info("colors", "true_color", trueColor, "because", trueWhy, "setting", cfg.TrueColor)
@@ -269,6 +273,10 @@ func run(cfg *Config, cfgPath string, warns []string, script launchScript) (err 
 	m.keymapPath, m.keysBase = kmPath, keysBase
 	m.localPath, m.desk, m.deskKnown = localPath, desk, deskKnown
 	m.trueColor, m.trueColorWhy = trueColor, trueWhy
+	m.pointerOn, m.pointerWhy = ptrNames != nil, ptrWhy
+	if m.pointerOn {
+		m.pointer = ptrDefault // (as setup set it)
+	}
 	m.cfgPath = cfgPath
 	m.wrapFromConfig = &wrapFromConfig
 	if lc, ok := readLocalConfig(localPath); ok {
@@ -548,6 +556,7 @@ func (m *WM) render(scr *hostScreen) error {
 		cur = cursorState{visible: true, x: x, y: y, shape: w.cursorShape, blink: w.cursorBlink,
 			color: w.fgColor} // the window's palette text color, if any
 	}
+	cur.pointer = m.pointer
 	m.dirty = false
 	if m.repaintHost {
 		m.repaintHost = false

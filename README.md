@@ -329,6 +329,15 @@ are still open; then a fresh background shell is started.
   triple-click a line. The text is copied when you release the button and
   stays highlighted until you click or type. In programs that use the mouse
   (vim, htop, ...), hold **Shift** while selecting.
+- **Pointer**: an arrow over frames, title bars and programs that use the
+  mouse, a text beam over text, resize arrows over edges and corners
+  (`pointer_shapes`). Only terminals that take OSC 22 show it: kitty,
+  ghostty, foot, iTerm2 3.5+ and xterm (others get the arrow at start, in
+  case they take it). macOS Terminal keeps its own pointer (the text
+  beam), whatever goat asks.
+- **Your terminal's scrollbar**: `clear_host_scrollback = true` empties
+  your terminal's own history when goat starts, so its scrollbar goes;
+  what it showed comes back when goat ends.
 
 ## Configuration
 

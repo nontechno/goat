@@ -36,6 +36,12 @@ type hostScreen struct {
 	mouse    bool // mouse reporting is on (setup)
 	keyboard bool // enhanced key reports asked for (keyboard_enhancements; keyboard.go)
 	repaint  bool // the next frame rewrites everything (see repaintAll)
+
+	pointers   *pointerNames // OSC 22 names the terminal takes (nil: none; pointer.go)
+	pointer    pointerShape  // the pointer last set
+	pointerOff bool          // pointer_shapes = "off": goat leaves the pointer alone
+
+	clearScrollback bool // clear_host_scrollback: empty the terminal's history at start
 }
 
 func newHostScreen(out io.Writer, env []string, w, h int) *hostScreen {
@@ -63,7 +69,20 @@ func (s *hostScreen) resize(w, h int) {
 func (s *hostScreen) setup(mouse bool) error {
 	var b bytes.Buffer
 	s.mouse = mouse
+	if s.clearScrollback {
+		// The terminal's history (and so its scrollbar) goes; its screen
+		// stays, kept by the alternate screen for when goat ends.
+		b.WriteString("\x1b[3J")
+	}
 	b.WriteString(ansi.SetModeAltScreenSaveCursor + ansi.HideCursor)
+	switch { // the usual arrow from the start (pointer.go)
+	case s.pointerOff:
+	case s.pointers != nil:
+		b.WriteString("\x1b]22;" + s.pointers[ptrDefault] + "\x1b\\")
+		s.pointer = ptrDefault
+	default: // a terminal not known for OSC 22: both names, in case
+		b.WriteString("\x1b]22;" + cssPointers[ptrDefault] + "\x1b\\" + "\x1b]22;" + x11Pointers[ptrDefault] + "\x1b\\")
+	}
 	if s.keyboard {
 		b.WriteString("\x1b[>5u") // a kitty keyboard entry of goat's own (popped at teardown)
 	}
@@ -96,6 +115,13 @@ func (s *hostScreen) teardown(mouse bool) {
 	if s.cursorColor != "" {
 		b.WriteString(ansi.ResetCursorColor)
 	}
+	switch { // the terminal's usual text beam
+	case s.pointerOff:
+	case s.pointers != nil:
+		b.WriteString("\x1b]22;" + s.pointers[ptrText] + "\x1b\\")
+	default:
+		b.WriteString("\x1b]22;" + cssPointers[ptrText] + "\x1b\\" + "\x1b]22;" + x11Pointers[ptrText] + "\x1b\\")
+	}
 	b.WriteString(ansi.ResetModeBracketedPaste + ansi.ResetModeAltScreenSaveCursor +
 		ansi.ShowCursor + ansi.SetCursorStyle(0))
 	_, _ = s.out.Write(b.Bytes())
@@ -121,7 +147,11 @@ func (s *hostScreen) writeModes(b *bytes.Buffer) {
 		b.WriteString("\x1b[=5;1u" + "\x1b[>4;2m")
 	}
 	if s.mouse {
-		_ = uv.EncodeMouseMode(b, uv.MouseModeDrag)
+		mode := uv.MouseModeDrag
+		if s.pointers != nil { // every movement: the pointer follows what is under it (pointer.go)
+			mode = uv.MouseModeMotion
+		}
+		_ = uv.EncodeMouseMode(b, mode)
 	}
 }
 
@@ -142,7 +172,8 @@ type cursorState struct {
 	x, y    int
 	shape   uv.CursorShape
 	blink   bool
-	color   color.Color // nil = the terminal's own cursor color
+	color   color.Color  // nil = the terminal's own cursor color
+	pointer pointerShape // the mouse pointer (pointer.go)
 }
 
 // hexColor is c as "#rrggbb" ("" for nil).
@@ -177,7 +208,7 @@ func (s *hostScreen) render(d uv.Drawable, cur cursorState) error {
 		s.rend.Invalidate(s.rbuf)
 		// Not known any more: sent again below.
 		s.cursorShown = !cur.visible
-		s.shape, s.cursorColor = -1, "?"
+		s.shape, s.cursorColor, s.pointer = -1, "?", ptrUnknown
 	}
 	s.rend.Render(s.rbuf)
 	cells := s.rend.Buffered() > 0 || repaint
@@ -222,6 +253,10 @@ func (s *hostScreen) render(d uv.Drawable, cur cursorState) error {
 	}
 	if cells {
 		b.WriteString(ansi.ResetModeSynchronizedOutput)
+	}
+	if s.pointers != nil && cur.pointer != ptrUnknown && cur.pointer != s.pointer {
+		s.pointer = cur.pointer
+		b.WriteString("\x1b]22;" + s.pointers[cur.pointer] + "\x1b\\")
 	}
 	if b.Len() == 0 {
 		return nil

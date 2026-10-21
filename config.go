@@ -200,6 +200,14 @@ type Config struct {
 	// (their xterm-256 indexes) or "auto" (rgb when 24-bit color is on).
 	PaletteColors string `toml:"palette_colors"`
 
+	// Mouse pointer shapes over frames, edges and text (pointer.go):
+	// "auto" (terminals known to take OSC 22), "on" or "off".
+	PointerShapes string `toml:"pointer_shapes"`
+
+	// Empty the history of the terminal goat runs in when goat starts (its
+	// scrollbar goes; its screen is kept for when goat ends).
+	ClearHostScrollback bool `toml:"clear_host_scrollback"`
+
 	// Ask the terminal goat runs in to report keys the classic encoding
 	// can't tell apart (Shift+Enter, Ctrl+i / Tab, Esc / Alt): kitty's
 	// keyboard protocol, else xterm's modifyOtherKeys (keyboard.go).
@@ -239,6 +247,7 @@ func DefaultConfig() *Config {
 		TitleSource:          "process",
 		TrueColor:            "auto",
 		PaletteColors:        "rgb",
+		PointerShapes:        "auto",
 		KeyboardEnhancements: true,
 		Frame:                "full",
 		ClipboardOSC52:       true,
@@ -367,6 +376,12 @@ func (c *Config) finish(md *toml.MetaData) []string {
 	default:
 		warn("palette_colors = %q: use \"rgb\", \"ansi\" or \"auto\" (using \"rgb\")", c.PaletteColors)
 		c.PaletteColors = "rgb"
+	}
+	switch c.PointerShapes {
+	case "auto", "on", "off":
+	default:
+		warn("pointer_shapes = %q: use \"auto\", \"on\" or \"off\" (using \"auto\")", c.PointerShapes)
+		c.PointerShapes = "auto"
 	}
 	switch c.TitleSource {
 	case "process", "terminal":
